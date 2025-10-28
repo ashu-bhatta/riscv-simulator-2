@@ -95,6 +95,7 @@ public:
     virtual void Undo() = 0;
     virtual void Redo() = 0;
     virtual void Reset() = 0;
+    virtual void RequestStop() = 0;
     void DumpState(const std::filesystem::path &filename);
 
     void ModifyRegister(const std::string &reg_name, uint64_t value);
