@@ -62,6 +62,8 @@ struct ID_EX_Register {
   // Branch-specific
   bool branch_flag = false;
   int64_t branch_target = 0;
+  // Prediction info
+  bool predicted_taken = false;
   
   void Reset() {
     pc = 0;
@@ -99,6 +101,7 @@ struct EX_MEM_Register {
   // Branch resolution
   bool branch_taken = false;
   uint64_t branch_target = 0;
+  bool predicted_taken = false;
   
   void Reset() {
     pc = 0;
@@ -144,6 +147,55 @@ struct MEM_WB_Register {
  */
 class RV5SVM : public VmBase {
 public:
+  // Structures to record architectural changes for undo/redo
+  struct RegisterChange {
+    unsigned int reg_index;
+    unsigned int reg_type; // 0 = GPR, 1 = CSR, 2 = FPR
+    uint64_t old_value;
+    uint64_t new_value;
+  };
+
+  struct MemoryChange {
+    uint64_t address;
+    std::vector<uint8_t> old_bytes_vec;
+    std::vector<uint8_t> new_bytes_vec;
+  };
+
+  struct StepDelta {
+    uint64_t old_pc = 0;
+    uint64_t new_pc = 0;
+
+    // Pipeline register snapshots (before and after)
+    IF_ID_Register old_if_id;
+    ID_EX_Register old_id_ex;
+    EX_MEM_Register old_ex_mem;
+    MEM_WB_Register old_mem_wb;
+
+    IF_ID_Register new_if_id;
+    ID_EX_Register new_id_ex;
+    EX_MEM_Register new_ex_mem;
+    MEM_WB_Register new_mem_wb;
+
+    std::vector<RegisterChange> register_changes;
+    std::vector<MemoryChange> memory_changes;
+
+    // Optional branch predictor snapshot (copied when dynamic predictor is enabled)
+    std::vector<uint8_t> branch_table_snapshot;
+
+    uint64_t old_total_cycles = 0;
+    uint64_t new_total_cycles = 0;
+    uint64_t old_instructions_retired = 0;
+    uint64_t new_instructions_retired = 0;
+  };
+
+  // Undo/Redo stacks and current delta
+  std::stack<StepDelta> undo_stack_;
+  std::stack<StepDelta> redo_stack_;
+  StepDelta current_delta_;
+
+  // When false, MEM/WB/WB shouldn't append to current_delta_ (used during undo/redo restore)
+  bool recording_enabled_ = true;
+
   // Pipeline registers
   IF_ID_Register if_id_reg_;
   ID_EX_Register id_ex_reg_;
@@ -226,6 +278,13 @@ public:
   void FlushPipeline();           // Clear all pipeline registers (for reset)
   void InsertBubble();            // Insert a NOP bubble in ID/EX
   bool IsPipelineEmpty();         // Check if all stages are empty
+
+  bool DetectHazard(uint64_t rs1, uint64_t rs2);
+  uint64_t ResolveForwarding(uint8_t src_reg, uint64_t reg_value); 
+
+  // Branch predictor helpers
+  bool GetBranchPrediction(uint64_t pc);
+  void UpdateBranchPredictor(uint64_t pc, bool taken);
   
 private:
   void PrintPipelineStatus();
@@ -240,6 +299,11 @@ private:
   uint64_t csr_old_value_ = 0;
   uint64_t csr_write_val_ = 0;
   uint8_t csr_uimm_ = 0;
+
+  // Branch predictor (2-bit bimodal)
+  std::vector<uint8_t> branch_table_;
+  size_t bp_mask_ = 0;
+  static constexpr size_t kBpTableSize = 1024; // must be power of two
 };
 
 #endif // RV5S_VM_H

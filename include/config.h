@@ -21,7 +21,10 @@
 namespace vm_config {
 enum class VmTypes {
   SINGLE_STAGE,
-  MULTI_STAGE
+  MULTI_STAGE,
+  MULTI_STAGE_WITH_FORWARDING,
+  MULTI_STAGE_WITH_HAZARD_DETECTION,
+  MULTI_STAGE_WITH_BOTH
 };
 
 struct VmConfig {
@@ -116,6 +119,11 @@ struct VmConfig {
     d_extension_enabled = enabled;
   }
 
+  void setBranchPredBits(int bits) {
+    globals::branch_prediction_bits = bits;
+    std::cout << "Branch predictor bits set to: " << bits << std::endl;
+  }
+
   bool getDExtensionEnabled() const {
     return d_extension_enabled;
   }
@@ -127,6 +135,12 @@ struct VmConfig {
           setVmType(VmTypes::SINGLE_STAGE);
         } else if (value == "multi_stage") {
           setVmType(VmTypes::MULTI_STAGE);
+        } else if(value == "multi_stage_with_forwarding") {
+          setVmType(VmTypes::MULTI_STAGE_WITH_FORWARDING);
+        } else if(value == "multi_stage_with_hazard_detection") {
+          setVmType(VmTypes::MULTI_STAGE_WITH_HAZARD_DETECTION);
+        } else if(value == "multi_stage_with_both") {
+          setVmType(VmTypes::MULTI_STAGE_WITH_BOTH);
         } else {
           throw std::invalid_argument("Unknown VM type: " + value);
         }
@@ -134,6 +148,12 @@ struct VmConfig {
         setRunStepDelay(std::stoull(value));
       } else if (key == "instruction_execution_limit") {
         setInstructionExecutionLimit(std::stoull(value));
+      } else if (key == "branch_prediction_bits") {
+        int bits = std::stoi(value);
+        if (bits < 1 || bits > 8) {
+          throw std::invalid_argument("branch_prediction_bits must be between 1 and 8");
+        }
+        setBranchPredBits(bits);
       }
       
       else {
@@ -151,9 +171,6 @@ struct VmConfig {
       } else if (key == "bss_section_start") {
         setBssSectionStart(std::stoull(value, nullptr, 16));
       }
-      
-      
-      
       else {
         throw std::invalid_argument("Unknown key: " + key);
       }

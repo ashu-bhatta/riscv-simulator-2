@@ -17,3 +17,15 @@ bool globals::verbose_warnings = false;
 bool globals::vm_as_backend = false;
 
 unsigned int globals::text_section_start = 0x00000000;
+
+// Pipeline feature flags
+bool globals::pipeline_forwarding_enabled = false;
+bool globals::pipeline_hazard_detection_enabled = false;
+
+// Branch prediction defaults: 0 = none, 1 = static, 2 = dynamic
+int globals::branch_prediction_mode = 0;
+// Static branch policy default: predict-not-taken
+int globals::static_branch_policy = 0;
+
+// Number of bits for dynamic predictor counters (default 2)
+int globals::branch_prediction_bits = 2;

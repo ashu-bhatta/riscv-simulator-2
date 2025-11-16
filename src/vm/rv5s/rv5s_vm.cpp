@@ -1,5 +1,4 @@
-/**
- * @file rv5s_vm.cpp
+ /* @file rv5s_vm.cpp
  * @brief RV5S (5-Stage Pipeline) VM implementation
  * @author Om Dave & Ashutosh Bhatta
  */
@@ -33,6 +32,9 @@ RV5SVM::RV5SVM() : VmBase() {
     FlushPipeline();
     total_cycles_ = 0;
     bubbles_inserted_ = 0;
+    // Initialize branch predictor table (2-bit counters initialized to weakly not-taken = 1)
+    bp_mask_ = kBpTableSize - 1;
+    branch_table_.assign(RV5SVM::kBpTableSize, 1);
     DumpRegisters(globals::registers_dump_file_path, registers_);
     DumpState(globals::vm_state_dump_file_path);
 }
@@ -128,6 +130,32 @@ void RV5SVM::ID() {
     id_ex_reg_.valid = true;
     id_ex_reg_.branch_flag = false;
     id_ex_reg_.branch_target = 0;
+
+    // If this is a branch instruction, compute target and consult predictor
+    if (id_ex_reg_.control.branch) {
+        id_ex_reg_.branch_target = static_cast<int64_t>(pc) + static_cast<int64_t>(id_ex_reg_.imm);
+        if (globals::branch_prediction_mode > 0) {
+            id_ex_reg_.predicted_taken = GetBranchPrediction(pc);
+            if (id_ex_reg_.predicted_taken) {
+                // If predicted taken, update PC to branch target so IF fetches correct instruction
+                program_counter_ = static_cast<uint64_t>(id_ex_reg_.branch_target);
+                // Also invalidate the instruction currently in IF/ID since we redirected fetch
+                if_id_reg_.Reset();
+            }
+        } else {
+            id_ex_reg_.predicted_taken = false;
+        }
+    }
+
+    // Hazard detection (only if enabled globally)
+    if (globals::pipeline_hazard_detection_enabled && DetectHazard(rs1, rs2)) {
+        pc_write_ = false;
+        if_id_write_ = false;
+        InsertBubble();
+    } else {
+        pc_write_ = true;
+        if_id_write_ = true;
+    }
 }
 
 // ============================================================================
@@ -176,6 +204,7 @@ void RV5SVM::EX() {
     ex_mem_reg_.valid = true;
     ex_mem_reg_.branch_taken = id_ex_reg_.branch_flag;
     ex_mem_reg_.branch_target = id_ex_reg_.branch_target;
+    ex_mem_reg_.predicted_taken = id_ex_reg_.predicted_taken;
 }
 
 void RV5SVM::ExecuteAlu(ID_EX_Register& id_ex) {
@@ -185,6 +214,17 @@ void RV5SVM::ExecuteAlu(ID_EX_Register& id_ex) {
 
     uint64_t operand1 = id_ex.rs1_val;
     uint64_t operand2 = id_ex.rs2_val;
+
+    // Apply data forwarding if enabled: check if operand sources should be forwarded
+    if (globals::pipeline_forwarding_enabled) {
+        if (id_ex.rs1_addr != 0) {
+            operand1 = ResolveForwarding(id_ex.rs1_addr, operand1);
+        }
+        if (!id_ex.control.alu_src && id_ex.rs2_addr != 0) {
+            // Only forward rs2 when it's coming from a register (not an immediate)
+            operand2 = ResolveForwarding(id_ex.rs2_addr, operand2);
+        }
+    }
 
     // Select second operand: register or immediate
     if (id_ex.control.alu_src) {
@@ -494,20 +534,73 @@ void RV5SVM::MEM() {
         if (instruction_set::isFInstruction(instruction)) {
             // FSW
             uint32_t val = registers_.ReadFpr(rs2) & 0xFFFFFFFF;
+            std::vector<uint8_t> old_bytes(4);
+            for (size_t i = 0; i < 4; ++i) old_bytes[i] = memory_controller_.ReadByte(addr + i);
             memory_controller_.WriteWord(addr, val);
+            if (recording_enabled_) {
+                std::vector<uint8_t> new_bytes(4);
+                for (size_t i = 0; i < 4; ++i) new_bytes[i] = memory_controller_.ReadByte(addr + i);
+                current_delta_.memory_changes.push_back({addr, old_bytes, new_bytes});
+            }
         }
         else if (instruction_set::isDInstruction(instruction)) {
             // FSD
+            std::vector<uint8_t> old_bytes(8);
+            for (size_t i = 0; i < 8; ++i) old_bytes[i] = memory_controller_.ReadByte(addr + i);
             memory_controller_.WriteDoubleWord(addr, registers_.ReadFpr(rs2));
+            if (recording_enabled_) {
+                std::vector<uint8_t> new_bytes(8);
+                for (size_t i = 0; i < 8; ++i) new_bytes[i] = memory_controller_.ReadByte(addr + i);
+                current_delta_.memory_changes.push_back({addr, old_bytes, new_bytes});
+            }
         }
         else {
             // Integer stores - re-read rs2 for correct value
             uint64_t store_val = registers_.ReadGpr(rs2);
             switch (funct3) {
-            case 0b000: memory_controller_.WriteByte(addr, store_val & 0xFF); break; // SB
-            case 0b001: memory_controller_.WriteHalfWord(addr, store_val & 0xFFFF); break; // SH
-            case 0b010: memory_controller_.WriteWord(addr, store_val & 0xFFFFFFFF); break; // SW
-            case 0b011: memory_controller_.WriteDoubleWord(addr, store_val); break; // SD
+            case 0b000: { // SB
+                uint8_t oldb = memory_controller_.ReadByte(addr);
+                memory_controller_.WriteByte(addr, store_val & 0xFF);
+                if (recording_enabled_) {
+                    std::vector<uint8_t> old_bytes = {oldb};
+                    std::vector<uint8_t> new_bytes = {memory_controller_.ReadByte(addr)};
+                    current_delta_.memory_changes.push_back({addr, old_bytes, new_bytes});
+                }
+                break;
+            }
+            case 0b001: { // SH
+                std::vector<uint8_t> old_bytes(2);
+                for (size_t i = 0; i < 2; ++i) old_bytes[i] = memory_controller_.ReadByte(addr + i);
+                memory_controller_.WriteHalfWord(addr, store_val & 0xFFFF);
+                if (recording_enabled_) {
+                    std::vector<uint8_t> new_bytes(2);
+                    for (size_t i = 0; i < 2; ++i) new_bytes[i] = memory_controller_.ReadByte(addr + i);
+                    current_delta_.memory_changes.push_back({addr, old_bytes, new_bytes});
+                }
+                break;
+            }
+            case 0b010: { // SW
+                std::vector<uint8_t> old_bytes(4);
+                for (size_t i = 0; i < 4; ++i) old_bytes[i] = memory_controller_.ReadByte(addr + i);
+                memory_controller_.WriteWord(addr, store_val & 0xFFFFFFFF);
+                if (recording_enabled_) {
+                    std::vector<uint8_t> new_bytes(4);
+                    for (size_t i = 0; i < 4; ++i) new_bytes[i] = memory_controller_.ReadByte(addr + i);
+                    current_delta_.memory_changes.push_back({addr, old_bytes, new_bytes});
+                }
+                break;
+            }
+            case 0b011: { // SD
+                std::vector<uint8_t> old_bytes(8);
+                for (size_t i = 0; i < 8; ++i) old_bytes[i] = memory_controller_.ReadByte(addr + i);
+                memory_controller_.WriteDoubleWord(addr, store_val);
+                if (recording_enabled_) {
+                    std::vector<uint8_t> new_bytes(8);
+                    for (size_t i = 0; i < 8; ++i) new_bytes[i] = memory_controller_.ReadByte(addr + i);
+                    current_delta_.memory_changes.push_back({addr, old_bytes, new_bytes});
+                }
+                break;
+            }
             }
         }
     }
@@ -517,8 +610,35 @@ void RV5SVM::MEM() {
         program_counter_ = ex_mem_reg_.branch_target;
         if_id_reg_.Reset();
         id_ex_reg_.Reset();
-        branch_mispredictions_++;
     }
+
+    // Update branch predictor for branches resolved in MEM stage if enabled
+    if (ex_mem_reg_.valid && ex_mem_reg_.control.branch && globals::branch_prediction_mode > 0) {
+        // Update predictor using the PC where the branch was fetched
+        UpdateBranchPredictor(ex_mem_reg_.pc, ex_mem_reg_.branch_taken);
+
+        // If actual outcome differs from prediction, it's a misprediction
+        if (ex_mem_reg_.predicted_taken != ex_mem_reg_.branch_taken) {
+            branch_mispredictions_++;
+            // Flush IF and ID since they may contain wrong-path instructions
+            if_id_reg_.Reset();
+            id_ex_reg_.Reset();
+        }
+    }
+
+    // // Update branch predictor for branches resolved in MEM stage
+    // if (ex_mem_reg_.valid && ex_mem_reg_.control.branch) {
+    //     // Update predictor using the PC where the branch was fetched
+    //     UpdateBranchPredictor(ex_mem_reg_.pc, ex_mem_reg_.branch_taken);
+
+    //     // If actual outcome differs from prediction, it's a misprediction
+    //     if (ex_mem_reg_.predicted_taken != ex_mem_reg_.branch_taken) {
+    //         branch_mispredictions_++;
+    //         // Flush IF and ID since they may contain wrong-path instructions
+    //         if_id_reg_.Reset();
+    //         id_ex_reg_.Reset();
+    //     }
+    // }
 
     // Populate MEM/WB register
     mem_wb_reg_.alu_result = ex_mem_reg_.alu_result;
@@ -552,13 +672,21 @@ void RV5SVM::WB() {
         if (instruction_set::isFInstruction(instruction)) {
             // Check if result goes to GPR (for comparison, conversion ops)
             if (funct7 == 0b1010000 || funct7 == 0b1100000 || funct7 == 0b1110000) {
+                uint64_t old_reg = registers_.ReadGpr(rd);
                 registers_.WriteGpr(rd, mem_wb_reg_.alu_result);
+                if (recording_enabled_) {
+                    current_delta_.register_changes.push_back({rd, 0, old_reg, static_cast<uint64_t>(mem_wb_reg_.alu_result)});
+                }
             }
             else {
                 // Write to FPR
                 uint64_t write_val = (mem_wb_reg_.control.mem_to_reg) ?
                     mem_wb_reg_.memory_result : mem_wb_reg_.alu_result;
+                uint64_t old_reg = registers_.ReadFpr(rd);
                 registers_.WriteFpr(rd, write_val);
+                if (recording_enabled_) {
+                    current_delta_.register_changes.push_back({rd, 2, old_reg, static_cast<uint64_t>(write_val)});
+                }
             }
         }
         else if (instruction_set::isDInstruction(instruction)) {
@@ -574,16 +702,64 @@ void RV5SVM::WB() {
         }
         else if (opcode == 0b1110011) {
             // CSR instructions
-            registers_.WriteGpr(rd, mem_wb_reg_.alu_result); // rd gets old CSR value
+            {
+                uint64_t old_reg = registers_.ReadGpr(rd);
+                registers_.WriteGpr(rd, mem_wb_reg_.alu_result); // rd gets old CSR value
+                if (recording_enabled_) {
+                    current_delta_.register_changes.push_back({rd, 0, old_reg, static_cast<uint64_t>(mem_wb_reg_.alu_result)});
+                }
+            }
 
             // Update CSR based on funct3
             switch (funct3) {
-            case 0b001: registers_.WriteCsr(csr_target_address_, csr_write_val_); break; // CSRRW
-            case 0b010: if (csr_write_val_ != 0) registers_.WriteCsr(csr_target_address_, csr_old_value_ | csr_write_val_); break; // CSRRS
-            case 0b011: if (csr_write_val_ != 0) registers_.WriteCsr(csr_target_address_, csr_old_value_ & ~csr_write_val_); break; // CSRRC
-            case 0b101: registers_.WriteCsr(csr_target_address_, csr_uimm_); break; // CSRRWI
-            case 0b110: if (csr_uimm_ != 0) registers_.WriteCsr(csr_target_address_, csr_old_value_ | csr_uimm_); break; // CSRRSI
-            case 0b111: if (csr_uimm_ != 0) registers_.WriteCsr(csr_target_address_, csr_old_value_ & ~csr_uimm_); break; // CSRRCI
+            case 0b001: {
+                uint64_t old_csr = registers_.ReadCsr(csr_target_address_);
+                registers_.WriteCsr(csr_target_address_, csr_write_val_);
+                if (recording_enabled_) current_delta_.register_changes.push_back({csr_target_address_, 1, old_csr, csr_write_val_});
+                break;
+            }
+            case 0b010: {
+                if (csr_write_val_ != 0) {
+                    uint64_t old_csr = registers_.ReadCsr(csr_target_address_);
+                    uint64_t new_csr = old_csr | csr_write_val_;
+                    registers_.WriteCsr(csr_target_address_, new_csr);
+                    if (recording_enabled_) current_delta_.register_changes.push_back({csr_target_address_, 1, old_csr, new_csr});
+                }
+                break;
+            }
+            case 0b011: {
+                if (csr_write_val_ != 0) {
+                    uint64_t old_csr = registers_.ReadCsr(csr_target_address_);
+                    uint64_t new_csr = old_csr & ~csr_write_val_;
+                    registers_.WriteCsr(csr_target_address_, new_csr);
+                    if (recording_enabled_) current_delta_.register_changes.push_back({csr_target_address_, 1, old_csr, new_csr});
+                }
+                break;
+            }
+            case 0b101: {
+                uint64_t old_csr = registers_.ReadCsr(csr_target_address_);
+                registers_.WriteCsr(csr_target_address_, csr_uimm_);
+                if (recording_enabled_) current_delta_.register_changes.push_back({csr_target_address_, 1, old_csr, csr_uimm_});
+                break;
+            }
+            case 0b110: {
+                if (csr_uimm_ != 0) {
+                    uint64_t old_csr = registers_.ReadCsr(csr_target_address_);
+                    uint64_t new_csr = old_csr | csr_uimm_;
+                    registers_.WriteCsr(csr_target_address_, new_csr);
+                    if (recording_enabled_) current_delta_.register_changes.push_back({csr_target_address_, 1, old_csr, new_csr});
+                }
+                break;
+            }
+            case 0b111: {
+                if (csr_uimm_ != 0) {
+                    uint64_t old_csr = registers_.ReadCsr(csr_target_address_);
+                    uint64_t new_csr = old_csr & ~csr_uimm_;
+                    registers_.WriteCsr(csr_target_address_, new_csr);
+                    if (recording_enabled_) current_delta_.register_changes.push_back({csr_target_address_, 1, old_csr, new_csr});
+                }
+                break;
+            }
             }
         }
         else {
@@ -600,7 +776,9 @@ void RV5SVM::WB() {
                 write_val = static_cast<uint64_t>(imm << 12);
             }
 
+            uint64_t old_reg = registers_.ReadGpr(rd);
             registers_.WriteGpr(rd, write_val);
+            if (recording_enabled_) current_delta_.register_changes.push_back({rd, 0, old_reg, write_val});
         }
     }
 
@@ -693,6 +871,22 @@ void RV5SVM::Step() {
     // In a pipelined architecture, Step() advances ALL stages by one cycle
     // This is different from RVSS where Step() executes one complete instruction
 
+    // Record starting snapshot for undo/redo
+    if (recording_enabled_) {
+        current_delta_ = StepDelta();
+        current_delta_.old_pc = program_counter_;
+        current_delta_.old_if_id = if_id_reg_;
+        current_delta_.old_id_ex = id_ex_reg_;
+        current_delta_.old_ex_mem = ex_mem_reg_;
+        current_delta_.old_mem_wb = mem_wb_reg_;
+        current_delta_.old_total_cycles = total_cycles_;
+        current_delta_.old_instructions_retired = instructions_retired_;
+        if (globals::branch_prediction_mode == 2) {
+            // snapshot branch table
+            current_delta_.branch_table_snapshot = branch_table_;
+        }
+    }
+
     // Execute stages in REVERSE order to simulate parallel execution
     // This prevents data races on pipeline registers
     WB();   // Write Back stage (reads MEM/WB, no writes to pipeline regs)
@@ -705,6 +899,21 @@ void RV5SVM::Step() {
     total_cycles_++;
 
     PrintPipelineStatus();
+
+    // Record ending snapshot and push to undo stack
+    if (recording_enabled_) {
+        current_delta_.new_pc = program_counter_;
+        current_delta_.new_if_id = if_id_reg_;
+        current_delta_.new_id_ex = id_ex_reg_;
+        current_delta_.new_ex_mem = ex_mem_reg_;
+        current_delta_.new_mem_wb = mem_wb_reg_;
+        current_delta_.new_total_cycles = total_cycles_;
+        current_delta_.new_instructions_retired = instructions_retired_;
+        // register_changes and memory_changes are populated elsewhere (WB/MEM writes)
+        undo_stack_.push(current_delta_);
+        // clear redo stack since new action invalidates redo history
+        while (!redo_stack_.empty()) redo_stack_.pop();
+    }
 
 
     std::cout << "VM_STEP_COMPLETED" << std::endl;
@@ -747,11 +956,39 @@ void RV5SVM::Run() {
         }
 
         // Execute one pipeline cycle
+        // Record starting snapshot for undo/redo
+        if (recording_enabled_) {
+            current_delta_ = StepDelta();
+            current_delta_.old_pc = program_counter_;
+            current_delta_.old_if_id = if_id_reg_;
+            current_delta_.old_id_ex = id_ex_reg_;
+            current_delta_.old_ex_mem = ex_mem_reg_;
+            current_delta_.old_mem_wb = mem_wb_reg_;
+            current_delta_.old_total_cycles = total_cycles_;
+            current_delta_.old_instructions_retired = instructions_retired_;
+            if (globals::branch_prediction_mode == 2) {
+                current_delta_.branch_table_snapshot = branch_table_;
+            }
+        }
+
         WB();
         MEM();
         EX();
         ID();
         IF();
+
+        // Record ending snapshot and push to undo stack
+        if (recording_enabled_) {
+            current_delta_.new_pc = program_counter_;
+            current_delta_.new_if_id = if_id_reg_;
+            current_delta_.new_id_ex = id_ex_reg_;
+            current_delta_.new_ex_mem = ex_mem_reg_;
+            current_delta_.new_mem_wb = mem_wb_reg_;
+            current_delta_.new_total_cycles = total_cycles_;
+            current_delta_.new_instructions_retired = instructions_retired_;
+            undo_stack_.push(current_delta_);
+            while (!redo_stack_.empty()) redo_stack_.pop();
+        }
 
         total_cycles_++;
         cycles_executed++;
@@ -815,11 +1052,38 @@ void RV5SVM::DebugRun() {
         }
 
         // Execute one cycle
+        // Record starting snapshot for undo
+        if (recording_enabled_) {
+            current_delta_ = StepDelta();
+            current_delta_.old_pc = program_counter_;
+            current_delta_.old_if_id = if_id_reg_;
+            current_delta_.old_id_ex = id_ex_reg_;
+            current_delta_.old_ex_mem = ex_mem_reg_;
+            current_delta_.old_mem_wb = mem_wb_reg_;
+            current_delta_.old_total_cycles = total_cycles_;
+            current_delta_.old_instructions_retired = instructions_retired_;
+            if (globals::branch_prediction_mode == 2) {
+                current_delta_.branch_table_snapshot = branch_table_;
+            }
+        }
+
         WB();
         MEM();
         EX();
         ID();
         IF();
+
+        if (recording_enabled_) {
+            current_delta_.new_pc = program_counter_;
+            current_delta_.new_if_id = if_id_reg_;
+            current_delta_.new_id_ex = id_ex_reg_;
+            current_delta_.new_ex_mem = ex_mem_reg_;
+            current_delta_.new_mem_wb = mem_wb_reg_;
+            current_delta_.new_total_cycles = total_cycles_;
+            current_delta_.new_instructions_retired = instructions_retired_;
+            undo_stack_.push(current_delta_);
+            while (!redo_stack_.empty()) redo_stack_.pop();
+        }
 
         total_cycles_++;
         cycles_executed++;
@@ -849,21 +1113,59 @@ void RV5SVM::DebugRun() {
 // ============================================================================
 
 void RV5SVM::Undo() {
-    // Undo for pipelined execution is significantly more complex than single-cycle
-    // because multiple instructions are in-flight at different stages
-    // For now, we'll provide a simplified implementation that warns the user
+    if (undo_stack_.empty()) {
+        std::cout << "VM_NO_MORE_UNDO" << std::endl;
+        output_status_ = "VM_NO_MORE_UNDO";
+        return;
+    }
 
-    std::cout << "VM_UNDO_NOT_SUPPORTED" << std::endl;
-    output_status_ = "VM_UNDO_NOT_SUPPORTED";
-    std::cerr << "Warning: Undo/Redo is not fully supported in pipelined mode." << std::endl;
-    std::cerr << "The pipeline state makes it difficult to reverse individual cycles." << std::endl;
-    std::cerr << "Consider using single-stage mode (RVSS) for debugging with undo/redo." << std::endl;
+    // Pop last delta
+    StepDelta delta = undo_stack_.top();
+    undo_stack_.pop();
 
-    // TODO: Implement full pipeline state snapshot mechanism for undo/redo
-    // This would require:
-    // 1. Storing complete pipeline register state at each cycle
-    // 2. Tracking all register/memory changes across all stages
-    // 3. Reverting PC, pipeline registers, and architectural state
+    // Disable recording while restoring state
+    recording_enabled_ = false;
+
+    // Restore pipeline registers and PC
+    if_id_reg_ = delta.old_if_id;
+    id_ex_reg_ = delta.old_id_ex;
+    ex_mem_reg_ = delta.old_ex_mem;
+    mem_wb_reg_ = delta.old_mem_wb;
+    program_counter_ = delta.old_pc;
+
+    // Restore cycles/instruction counters
+    total_cycles_ = delta.old_total_cycles;
+    instructions_retired_ = delta.old_instructions_retired;
+
+    // Restore register changes (apply old_value)
+    for (const auto &rc : delta.register_changes) {
+        switch (rc.reg_type) {
+            case 0: registers_.WriteGpr(rc.reg_index, rc.old_value); break;
+            case 1: registers_.WriteCsr(rc.reg_index, rc.old_value); break;
+            case 2: registers_.WriteFpr(rc.reg_index, rc.old_value); break;
+            default: break;
+        }
+    }
+
+    // Restore memory changes
+    for (const auto &mc : delta.memory_changes) {
+        for (size_t i = 0; i < mc.old_bytes_vec.size(); ++i) {
+            memory_controller_.WriteByte(mc.address + i, mc.old_bytes_vec[i]);
+        }
+    }
+
+    // Restore branch predictor if snapshot exists
+    if (!delta.branch_table_snapshot.empty()) {
+        branch_table_ = delta.branch_table_snapshot;
+    }
+
+    // Push this delta to redo stack so it can be reapplied
+    redo_stack_.push(delta);
+
+    recording_enabled_ = true;
+
+    std::cout << "VM_UNDO_COMPLETED" << std::endl;
+    output_status_ = "VM_UNDO_COMPLETED";
 }
 
 // ============================================================================
@@ -871,11 +1173,57 @@ void RV5SVM::Undo() {
 // ============================================================================
 
 void RV5SVM::Redo() {
-    std::cout << "VM_REDO_NOT_SUPPORTED" << std::endl;
-    output_status_ = "VM_REDO_NOT_SUPPORTED";
-    std::cerr << "Warning: Undo/Redo is not fully supported in pipelined mode." << std::endl;
+    if (redo_stack_.empty()) {
+        std::cout << "VM_NO_MORE_REDO" << std::endl;
+        output_status_ = "VM_NO_MORE_REDO";
+        return;
+    }
 
-    // TODO: Implement redo with pipeline state restoration
+    StepDelta delta = redo_stack_.top();
+    redo_stack_.pop();
+
+    // Disable recording while applying
+    recording_enabled_ = false;
+
+    // Restore 'new' state (i.e., reapply the cycle)
+    if_id_reg_ = delta.new_if_id;
+    id_ex_reg_ = delta.new_id_ex;
+    ex_mem_reg_ = delta.new_ex_mem;
+    mem_wb_reg_ = delta.new_mem_wb;
+    program_counter_ = delta.new_pc;
+
+    total_cycles_ = delta.new_total_cycles;
+    instructions_retired_ = delta.new_instructions_retired;
+
+    // Reapply register changes (set to new_value)
+    for (const auto &rc : delta.register_changes) {
+        switch (rc.reg_type) {
+            case 0: registers_.WriteGpr(rc.reg_index, rc.new_value); break;
+            case 1: registers_.WriteCsr(rc.reg_index, rc.new_value); break;
+            case 2: registers_.WriteFpr(rc.reg_index, rc.new_value); break;
+            default: break;
+        }
+    }
+
+    // Reapply memory changes
+    for (const auto &mc : delta.memory_changes) {
+        for (size_t i = 0; i < mc.new_bytes_vec.size(); ++i) {
+            memory_controller_.WriteByte(mc.address + i, mc.new_bytes_vec[i]);
+        }
+    }
+
+    // Restore branch predictor snapshot if present
+    if (!delta.branch_table_snapshot.empty()) {
+        branch_table_ = delta.branch_table_snapshot;
+    }
+
+    // Push back onto undo stack to allow another undo
+    undo_stack_.push(delta);
+
+    recording_enabled_ = true;
+
+    std::cout << "VM_REDO_COMPLETED" << std::endl;
+    output_status_ = "VM_REDO_COMPLETED";
 }
 
 // ============================================================================
@@ -933,4 +1281,79 @@ void RV5SVM::InsertBubble() {
 bool RV5SVM::IsPipelineEmpty() {
     return !if_id_reg_.valid && !id_ex_reg_.valid &&
         !ex_mem_reg_.valid && !mem_wb_reg_.valid;
+}
+
+// Detect load-use hazards
+bool RV5SVM::DetectHazard(uint64_t rs1, uint64_t rs2) {
+
+    if (rs1 == 0 && rs2 == 0) return false;
+
+    // Check ID/EX (instruction currently in EX stage) for a load
+    if (id_ex_reg_.valid && id_ex_reg_.control.mem_read) {
+        uint8_t load_rd = id_ex_reg_.rd_addr;
+        if (load_rd != 0 && (load_rd == rs1 || load_rd == rs2)) {
+            return true;
+        }
+    }
+    // Check EX/MEM (instruction currently in MEM stage) for a load
+    if (ex_mem_reg_.valid && ex_mem_reg_.control.mem_read) {
+        uint8_t load_rd = ex_mem_reg_.rd_addr;
+        if (load_rd != 0 && (load_rd == rs1 || load_rd == rs2)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+uint64_t RV5SVM::ResolveForwarding(uint8_t src_reg, uint64_t reg_value) {
+
+    if (ex_mem_reg_.valid && ex_mem_reg_.rd_addr != 0 && ex_mem_reg_.rd_addr == src_reg && ex_mem_reg_.control.reg_write) {
+        if (!ex_mem_reg_.control.mem_read) {
+            return static_cast<uint64_t>(ex_mem_reg_.alu_result);
+        }
+    }
+
+    if (mem_wb_reg_.valid && mem_wb_reg_.rd_addr != 0 && mem_wb_reg_.rd_addr == src_reg && mem_wb_reg_.control.reg_write) {
+        if (mem_wb_reg_.control.mem_to_reg) {
+            return static_cast<uint64_t>(mem_wb_reg_.memory_result);
+        } else {
+            return static_cast<uint64_t>(mem_wb_reg_.alu_result);
+        }
+    }
+
+    return reg_value;
+}
+
+
+bool RV5SVM::GetBranchPrediction(uint64_t pc) {
+    if (globals::branch_prediction_mode == 0) return false;
+
+    if (globals::branch_prediction_mode == 1) {
+        // Static prediction: use global static policy
+        return (globals::static_branch_policy != 0);
+    }
+
+    // Dynamic (2-bit bimodal)
+    size_t idx = (pc >> 2) & bp_mask_;
+    int n = globals::branch_prediction_bits;
+    uint8_t counter = branch_table_[idx] & ((1u << n) - 1);
+    // threshold: top half of counter range predicts taken
+    uint8_t threshold = (1u << (n - 1));
+    return counter >= threshold;
+}
+
+void RV5SVM::UpdateBranchPredictor(uint64_t pc, bool taken) {
+    if (globals::branch_prediction_mode != 2) return; // only update dynamic predictor
+
+    size_t idx = (pc >> 2) & bp_mask_;
+    int n = globals::branch_prediction_bits;
+    uint8_t maxv = static_cast<uint8_t>((1u << n) - 1u);
+    uint8_t counter = branch_table_[idx] & maxv;
+    if (taken) {
+        if (counter < maxv) counter++;
+    } else {
+        if (counter > 0) counter--;
+    }
+    branch_table_[idx] = counter;
 }

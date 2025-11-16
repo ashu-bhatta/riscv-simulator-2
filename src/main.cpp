@@ -16,13 +16,41 @@
 
 // Factory function to create a VM based on the current configuration
 std::unique_ptr<VmBase> createVm() {
-    if (vm_config::config.getVmType() == vm_config::VmTypes::MULTI_STAGE) {
-        std::cout << "Creating 5-Stage Pipelined VM (RV5SVM)..." << std::endl;
-        return std::make_unique<RV5SVM>();
-    } else {
-        std::cout << "Creating Single-Stage VM (RVSSVM)..." << std::endl;
-        return std::make_unique<RVSSVM>();
-    }
+  // Configure global pipeline features based on VmTypes
+  auto vmtype = vm_config::config.getVmType();
+  globals::pipeline_forwarding_enabled = false;
+  globals::pipeline_hazard_detection_enabled = false;
+  globals::branch_prediction_mode = 0; // default none
+
+  switch (vmtype) {
+    case vm_config::VmTypes::SINGLE_STAGE:
+      std::cout << "Creating Single-Stage VM (RVSSVM)..." << std::endl;
+      return std::make_unique<RVSSVM>();
+
+    case vm_config::VmTypes::MULTI_STAGE:
+      std::cout << "Creating 5-Stage Pipelined VM (RV5SVM) - base (no forwarding/hazard)..." << std::endl;
+      return std::make_unique<RV5SVM>();
+
+    case vm_config::VmTypes::MULTI_STAGE_WITH_FORWARDING:
+      globals::pipeline_forwarding_enabled = true;
+      std::cout << "Creating 5-Stage Pipelined VM with Forwarding..." << std::endl;
+      return std::make_unique<RV5SVM>();
+
+    case vm_config::VmTypes::MULTI_STAGE_WITH_HAZARD_DETECTION:
+      globals::pipeline_hazard_detection_enabled = true;
+      std::cout << "Creating 5-Stage Pipelined VM with Hazard Detection..." << std::endl;
+      return std::make_unique<RV5SVM>();
+
+    case vm_config::VmTypes::MULTI_STAGE_WITH_BOTH:
+      globals::pipeline_forwarding_enabled = true;
+      globals::pipeline_hazard_detection_enabled = true;
+      std::cout << "Creating 5-Stage Pipelined VM with Forwarding and Hazard Detection..." << std::endl;
+      return std::make_unique<RV5SVM>();
+
+    default:
+      std::cout << "Unknown VM type, defaulting to single-stage." << std::endl;
+      return std::make_unique<RVSSVM>();
+  }
 }
 
 

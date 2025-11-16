@@ -24,6 +24,19 @@ extern bool verbose_errors_print;
 extern bool verbose_warnings;
 extern bool vm_as_backend;
 
+// Pipeline feature flags (set at startup based on config)
+extern bool pipeline_forwarding_enabled;
+extern bool pipeline_hazard_detection_enabled;
+
+// Branch prediction mode: 0 = none/static, 1 = static (predict-not-taken/taken configurable), 2 = dynamic (2-bit bimodal)
+extern int branch_prediction_mode;
+
+// Static branch prediction policy: 0 = predict-not-taken, 1 = predict-taken
+extern int static_branch_policy;
+
+// Number of bits used by dynamic branch predictor counters (n). Default 2.
+extern int branch_prediction_bits;
+
 extern unsigned int text_section_start;
 
 void initGlobals();
