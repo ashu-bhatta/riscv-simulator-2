@@ -130,6 +130,15 @@ struct MEM_WB_Register {
   
   uint32_t instruction = 0x00000013;
   bool valid = false;
+
+  int64_t prev_alu_result = 0;
+  int64_t prev_memory_result = 0;
+  uint8_t prev_rd_addr = 0;
+
+  RVSSControlUnit::ControlSignals prev_control;
+
+  uint32_t prev_instruction = 0x00000013;
+  bool prev_valid = false;
   
   void Reset() {
     alu_result = 0;

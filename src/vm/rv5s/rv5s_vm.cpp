@@ -626,21 +626,20 @@ void RV5SVM::MEM() {
         }
     }
 
-    // // Update branch predictor for branches resolved in MEM stage
-    // if (ex_mem_reg_.valid && ex_mem_reg_.control.branch) {
-    //     // Update predictor using the PC where the branch was fetched
-    //     UpdateBranchPredictor(ex_mem_reg_.pc, ex_mem_reg_.branch_taken);
+    mem_wb_reg_.prev_alu_result = mem_wb_reg_.alu_result;
+    mem_wb_reg_.prev_memory_result = mem_wb_reg_.memory_result;
+    mem_wb_reg_.prev_rd_addr = mem_wb_reg_.rd_addr;
+    mem_wb_reg_.prev_instruction = mem_wb_reg_.instruction;
+    mem_wb_reg_.prev_valid = mem_wb_reg_.valid;
+    mem_wb_reg_.prev_control = mem_wb_reg_.control;
 
-    //     // If actual outcome differs from prediction, it's a misprediction
-    //     if (ex_mem_reg_.predicted_taken != ex_mem_reg_.branch_taken) {
-    //         branch_mispredictions_++;
-    //         // Flush IF and ID since they may contain wrong-path instructions
-    //         if_id_reg_.Reset();
-    //         id_ex_reg_.Reset();
-    //     }
-    // }
+    if(mem_wb_reg_.prev_valid){
+        std::cout<<"MEM_WB prev_alu_result: "<<mem_wb_reg_.prev_alu_result<<std::endl;
+        std::cout<<"MEM_WB prev_memory_result: "<<mem_wb_reg_.prev_memory_result<<std::endl;
+        std::cout<<"MEM_WB prev_rd_addr: "<<static_cast<uint32_t>(mem_wb_reg_.prev_rd_addr)<<std::endl;
+        std::cout<<"MEM_WB prev_instruction: "<<mem_wb_reg_.prev_instruction<<std::endl;
+    }
 
-    // Populate MEM/WB register
     mem_wb_reg_.alu_result = ex_mem_reg_.alu_result;
     mem_wb_reg_.memory_result = current_mem_result_;
     mem_wb_reg_.rd_addr = ex_mem_reg_.rd_addr;
@@ -1308,17 +1307,25 @@ bool RV5SVM::DetectHazard(uint64_t rs1, uint64_t rs2) {
 
 uint64_t RV5SVM::ResolveForwarding(uint8_t src_reg, uint64_t reg_value) {
 
+    std::cout<< "Resolving forwarding for register x" << static_cast<int>(src_reg) << " with original value 0x"
+         << std::hex << reg_value << std::dec << std::endl;
+    std::cout<< "EX/MEM valid: " << ex_mem_reg_.valid << ", rd_addr: " << static_cast<int>(ex_mem_reg_.rd_addr)
+         << ", reg_write: " << ex_mem_reg_.control.reg_write << ", alu_result: 0x" << std::hex << ex_mem_reg_.alu_result << std::dec << std::endl;
+    std::cout<< "MEM/WB valid: " << mem_wb_reg_.prev_valid << ", rd_addr: " << static_cast<int>(mem_wb_reg_.prev_rd_addr)
+         << ", reg_write: " << mem_wb_reg_.prev_control.reg_write << ", alu_result: 0x" << std::hex << mem_wb_reg_.prev_alu_result
+         << ", memory_result: 0x" << mem_wb_reg_.prev_memory_result << std::dec << std::endl;
+
     if (ex_mem_reg_.valid && ex_mem_reg_.rd_addr != 0 && ex_mem_reg_.rd_addr == src_reg && ex_mem_reg_.control.reg_write) {
         if (!ex_mem_reg_.control.mem_read) {
             return static_cast<uint64_t>(ex_mem_reg_.alu_result);
         }
     }
 
-    if (mem_wb_reg_.valid && mem_wb_reg_.rd_addr != 0 && mem_wb_reg_.rd_addr == src_reg && mem_wb_reg_.control.reg_write) {
-        if (mem_wb_reg_.control.mem_to_reg) {
-            return static_cast<uint64_t>(mem_wb_reg_.memory_result);
+    if (mem_wb_reg_.prev_valid && mem_wb_reg_.prev_rd_addr != 0 && mem_wb_reg_.prev_rd_addr == src_reg && mem_wb_reg_.prev_control.reg_write) {
+        if (mem_wb_reg_.prev_control.mem_to_reg) {
+            return static_cast<uint64_t>(mem_wb_reg_.prev_memory_result);
         } else {
-            return static_cast<uint64_t>(mem_wb_reg_.alu_result);
+            return static_cast<uint64_t>(mem_wb_reg_.prev_alu_result);
         }
     }
 
