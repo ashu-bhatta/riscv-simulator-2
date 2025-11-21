@@ -1,2 +1,2 @@
-modify_config Execution processor_type multi_stage_with_forwarding
+modify_config Execution processor_type multi_stage_with_both
 l ../examples/data_forwarding_test.s

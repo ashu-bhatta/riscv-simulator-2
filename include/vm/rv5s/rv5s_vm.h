@@ -97,7 +97,7 @@ struct EX_MEM_Register {
   
   uint32_t instruction = 0x00000013;
   bool valid = false;
-  
+
   // Branch resolution
   bool branch_taken = false;
   uint64_t branch_target = 0;
@@ -217,6 +217,7 @@ public:
   // Pipeline control flags
   bool pc_write_ = true;          // Can PC be updated?
   bool if_id_write_ = true;       // Can IF/ID register be updated?
+  uint8_t hazard_stall_cycles_ = 0;
   
   // Statistics
   uint64_t total_cycles_ = 0;
@@ -288,7 +289,7 @@ public:
   void InsertBubble();            // Insert a NOP bubble in ID/EX
   bool IsPipelineEmpty();         // Check if all stages are empty
 
-  bool DetectHazard(uint64_t rs1, uint64_t rs2);
+  uint8_t DetectHazard(uint64_t rs1, uint64_t rs2);
   uint64_t ResolveForwarding(uint8_t src_reg, uint64_t reg_value); 
 
   // Branch predictor helpers
