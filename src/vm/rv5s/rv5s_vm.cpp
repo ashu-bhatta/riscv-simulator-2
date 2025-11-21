@@ -75,6 +75,15 @@ void RV5SVM::IF() {
 // ============================================================================
 
 void RV5SVM::ID() {
+    
+    if (hazard_stall_cycles_ > 0) {
+        pc_write_ = false;
+        if_id_write_ = false;
+        InsertBubble();
+        hazard_stall_cycles_--;
+        return;
+    }
+
     // If IF/ID register is not valid, propagate a bubble
     if (!if_id_reg_.valid) {
         id_ex_reg_.Reset();
@@ -117,44 +126,51 @@ void RV5SVM::ID() {
     // Generate immediate
     int32_t imm = ImmGenerator(instruction);
 
-    // Populate ID/EX register
-    id_ex_reg_.pc = pc;
-    id_ex_reg_.rs1_val = rs1_val;
-    id_ex_reg_.rs2_val = rs2_val;
-    id_ex_reg_.imm = static_cast<int64_t>(imm);
-    id_ex_reg_.rs1_addr = rs1;
-    id_ex_reg_.rs2_addr = rs2;
-    id_ex_reg_.rd_addr = rd;
-    id_ex_reg_.control = control_unit_.GetControlSignals();
-    id_ex_reg_.instruction = instruction;
-    id_ex_reg_.valid = true;
-    id_ex_reg_.branch_flag = false;
-    id_ex_reg_.branch_target = 0;
-
-    // If this is a branch instruction, compute target and consult predictor
-    if (id_ex_reg_.control.branch) {
-        id_ex_reg_.branch_target = static_cast<int64_t>(pc) + static_cast<int64_t>(id_ex_reg_.imm);
-        if (globals::branch_prediction_mode > 0) {
-            id_ex_reg_.predicted_taken = GetBranchPrediction(pc);
-            if (id_ex_reg_.predicted_taken) {
-                // If predicted taken, update PC to branch target so IF fetches correct instruction
-                program_counter_ = static_cast<uint64_t>(id_ex_reg_.branch_target);
-                // Also invalidate the instruction currently in IF/ID since we redirected fetch
-                if_id_reg_.Reset();
-            }
-        } else {
-            id_ex_reg_.predicted_taken = false;
-        }
+    uint64_t detect_rs1 = rs1;
+    uint64_t detect_rs2 = rs2;
+    if (id_ex_reg_.control.alu_src) {
+        detect_rs2 = static_cast<uint64_t>(0); // indicate no rs2 dependency
     }
 
-    // Hazard detection (only if enabled globally)
-    if (globals::pipeline_hazard_detection_enabled && DetectHazard(rs1, rs2)) {
+    uint8_t stalls_needed = DetectHazard(detect_rs1, detect_rs2);
+    if (globals::pipeline_hazard_detection_enabled && stalls_needed != 0) {
+        // Insert one bubble this cycle and schedule the remaining stalls
         pc_write_ = false;
         if_id_write_ = false;
         InsertBubble();
+        if (stalls_needed > 1) hazard_stall_cycles_ = static_cast<uint8_t>(stalls_needed - 1);
     } else {
         pc_write_ = true;
         if_id_write_ = true;
+        // Populate ID/EX register
+        id_ex_reg_.pc = pc;
+        id_ex_reg_.rs1_val = rs1_val;
+        id_ex_reg_.rs2_val = rs2_val;
+        id_ex_reg_.imm = static_cast<int64_t>(imm);
+        id_ex_reg_.rs1_addr = rs1;
+        id_ex_reg_.rs2_addr = rs2;
+        id_ex_reg_.rd_addr = rd;
+        id_ex_reg_.control = control_unit_.GetControlSignals();
+        id_ex_reg_.instruction = instruction;
+        id_ex_reg_.valid = true;
+        id_ex_reg_.branch_flag = false;
+        id_ex_reg_.branch_target = 0;
+
+        // If this is a branch instruction, compute target and consult predictor
+        if (id_ex_reg_.control.branch) {
+            id_ex_reg_.branch_target = static_cast<int64_t>(pc) + static_cast<int64_t>(id_ex_reg_.imm);
+            if (globals::branch_prediction_mode > 0) {
+                id_ex_reg_.predicted_taken = GetBranchPrediction(pc);
+                if (id_ex_reg_.predicted_taken) {
+                    // If predicted taken, update PC to branch target so IF fetches correct instruction
+                    program_counter_ = static_cast<uint64_t>(id_ex_reg_.branch_target);
+                    // Also invalidate the instruction currently in IF/ID since we redirected fetch
+                    if_id_reg_.Reset();
+                }
+            } else {
+                id_ex_reg_.predicted_taken = false;
+            }
+        }
     }
 }
 
@@ -1165,6 +1181,9 @@ void RV5SVM::Undo() {
 
     std::cout << "VM_UNDO_COMPLETED" << std::endl;
     output_status_ = "VM_UNDO_COMPLETED";
+
+    DumpRegisters(globals::registers_dump_file_path, registers_);
+    DumpState(globals::vm_state_dump_file_path);
 }
 
 // ============================================================================
@@ -1223,6 +1242,9 @@ void RV5SVM::Redo() {
 
     std::cout << "VM_REDO_COMPLETED" << std::endl;
     output_status_ = "VM_REDO_COMPLETED";
+
+    DumpRegisters(globals::registers_dump_file_path, registers_);
+    DumpState(globals::vm_state_dump_file_path);
 }
 
 // ============================================================================
@@ -1283,26 +1305,39 @@ bool RV5SVM::IsPipelineEmpty() {
 }
 
 // Detect load-use hazards
-bool RV5SVM::DetectHazard(uint64_t rs1, uint64_t rs2) {
+uint8_t RV5SVM::DetectHazard(uint64_t rs1, uint64_t rs2) {
+    // No register sources -> no hazard
+    if (rs1 == 0 && rs2 == 0) return 0;
 
-    if (rs1 == 0 && rs2 == 0) return false;
+    // Helper lambda to check match
+    auto matches = [&](uint8_t rd) {
+        return rd != 0 && (rd == rs1 || rd == rs2);
+    };
 
-    // Check ID/EX (instruction currently in EX stage) for a load
-    if (id_ex_reg_.valid && id_ex_reg_.control.mem_read) {
-        uint8_t load_rd = id_ex_reg_.rd_addr;
-        if (load_rd != 0 && (load_rd == rs1 || load_rd == rs2)) {
-            return true;
+    // If forwarding is disabled: any pending reg write to our source registers is a hazard
+    if (!globals::pipeline_forwarding_enabled) {
+        if (id_ex_reg_.valid && id_ex_reg_.control.reg_write && matches(id_ex_reg_.rd_addr)) {
+            return 2; // producer in EX stage: need 2 NOPs to wait until WB
         }
-    }
-    // Check EX/MEM (instruction currently in MEM stage) for a load
-    if (ex_mem_reg_.valid && ex_mem_reg_.control.mem_read) {
-        uint8_t load_rd = ex_mem_reg_.rd_addr;
-        if (load_rd != 0 && (load_rd == rs1 || load_rd == rs2)) {
-            return true;
+        if (ex_mem_reg_.valid && ex_mem_reg_.control.reg_write && matches(ex_mem_reg_.rd_addr)) {
+            return 1; // producer in MEM stage: need 1 NOP to wait until WB
         }
+        if (mem_wb_reg_.valid && mem_wb_reg_.control.reg_write && matches(mem_wb_reg_.rd_addr)) {
+            return 0; // producer in WB stage: value is being written this cycle
+        }
+        return 0;
     }
 
-    return false;
+    // Forwarding enabled: only stall for true load-use where load data is not yet available.
+    if (id_ex_reg_.valid && id_ex_reg_.control.mem_read && matches(id_ex_reg_.rd_addr)) {
+        return 1; // load in EX stage -> classic load-use hazard (1 NOP)
+    }
+
+    if (ex_mem_reg_.valid && ex_mem_reg_.control.mem_read && matches(ex_mem_reg_.rd_addr)) {
+        return 0; // load in MEM stage: data becomes available for forwarding this cycle
+    }
+
+    return 0;
 }
 
 uint64_t RV5SVM::ResolveForwarding(uint8_t src_reg, uint64_t reg_value) {
