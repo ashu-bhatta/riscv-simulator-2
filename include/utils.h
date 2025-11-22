@@ -53,6 +53,8 @@ void DumpRegisters(const std::filesystem::path &filename, RegisterFile &register
 
 void DumpDisasssembly(const std::filesystem::path &filename, AssembledProgram &program);
 
+void DumpCache(const std::filesystem::path &filename, std::vector<cache::CacheSet> &sets_);
+
 void SetupConfigFile();
 
 #endif // UTILS_H

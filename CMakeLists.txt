@@ -16,6 +16,8 @@ set(SRC_DIR "src")
 set(INCLUDE_DIR "include")
 set(TEST_DIR "test")
 
+option(ENABLE_API "Build API server (Drogon)" OFF)
+
 file(GLOB_RECURSE SRC_FILES "${SRC_DIR}/*.cpp")
 file(GLOB_RECURSE TEST_FILES "${TEST_DIR}/*.cpp")
 
@@ -23,6 +25,26 @@ add_executable(${PROJECT_NAME} ${SRC_FILES})
 target_include_directories(${PROJECT_NAME} PRIVATE ${INCLUDE_DIR})
 target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -pedantic -frounding-math -ffloat-store -g -O3)
 target_link_libraries(${PROJECT_NAME} PRIVATE m)
+
+if(ENABLE_API)
+    find_package(drogon REQUIRED)
+
+    # API sources (built only when ENABLE_API is ON)
+    set(API_SOURCES
+        src/api/api_vm_adapter.cpp
+        src/api/server.cpp
+        src/api/controllers/ApiController.cc
+    )
+
+    add_library(sim_api STATIC ${API_SOURCES})
+    target_include_directories(sim_api PRIVATE ${INCLUDE_DIR})
+    target_link_libraries(sim_api PRIVATE drogon::drogon)
+    target_compile_features(sim_api PRIVATE cxx_std_20)
+
+    # Link API library into main executable
+    target_link_libraries(${PROJECT_NAME} PRIVATE sim_api)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_API)
+endif()
 
 if(ENABLE_ASAN)
     message(STATUS "ASAN enabled: Adding AddressSanitizer flags to main target")

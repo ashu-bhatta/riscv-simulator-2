@@ -30,6 +30,7 @@ using instruction_set::get_instr_encoding;
 RVSSVM::RVSSVM() : VmBase() {
   DumpRegisters(globals::registers_dump_file_path, registers_);
   DumpState(globals::vm_state_dump_file_path);
+  if(vm_config::config.cache_enabled)  DumpCache(globals::cache_dump_file_path, memory_controller_.GetCache());
 }
 
 RVSSVM::~RVSSVM() = default;
@@ -820,6 +821,7 @@ void RVSSVM::Run() {
   }
   DumpRegisters(globals::registers_dump_file_path, registers_);
   DumpState(globals::vm_state_dump_file_path);
+  DumpCache(globals::cache_dump_file_path, memory_controller_.GetCache());
 }
 
 void RVSSVM::DebugRun() {

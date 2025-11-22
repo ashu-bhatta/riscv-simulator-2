@@ -8,6 +8,7 @@
 #include "utils.h"
 #include "vm/registers.h"
 #include "globals.h"
+#include "vm/cache/cache.h"
 
 #include <filesystem>
 #include <fstream>
@@ -382,6 +383,33 @@ void DumpDisasssembly(const std::filesystem::path &filename, AssembledProgram &p
   program.instruction_number_disassembly_mapping = instruction_number_disassembly_mapping;
 }
 
+void DumpCache(const std::filesystem::path &filename, std::vector<cache::CacheSet>& cache_sets){
+  std::ofstream out(filename);
+  if (!out) {
+    std::cerr << "Failed to open cache dump output file: " << filename << std::endl;
+    return;
+  }
+  std::cout<<"Inside DumpCache\n";
+  out << "{\n";
+  for (size_t i = 0; i < cache_sets.size(); ++i) {
+    const auto &set = cache_sets[i];
+    out << "  {\n";
+    out << "    \"associativity\": " << set.associativity << ",\n";
+    out << "    \"lines\": [\n";
+    for (size_t j = 0; j < set.lines.size(); ++j) {
+      const auto &line = set.lines[j];
+      out << "      {\"tag\": " << line.tag << ", \"state\": " << static_cast<int>(line.state) << ", \"data_len\": " << line.data.size() << "}";
+      if (j + 1 < set.lines.size()) out << ",";
+      out << "\n";
+    }
+    out << "    ]\n";
+    out << "  }";
+    if (i + 1 < cache_sets.size()) out << ",";
+    out << "\n";
+  }
+  out << "}\n";
+  out.close();
+}
 
 
 void SetupConfigFile() {

@@ -6,6 +6,8 @@
 #ifndef CACHE_H
 #define CACHE_H
 
+#include "../main_memory.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -73,12 +75,37 @@ struct CacheSet {
 };
 
 class Cache {
-  bool enabled; ///< Flag to indicate if the cache is enabled
-  CacheType type; ///< Type of cache (instruction or data)
-  CacheConfig config; ///< Configuration of the cache
-  CacheStats stats; ///< Statistics for the cache
+public:
+  Cache() = delete;
+  Cache(const CacheConfig &cfg);
 
+  // Read/Write operations (memory is passed so cache can fetch/evict lines)
+  uint8_t ReadByte(uint64_t address, Memory &memory);
+  void WriteByte(uint64_t address, uint8_t value, Memory &memory);
 
+  void PrintStats() const;
+
+  std::vector<CacheSet>& GetCacheSets() {
+    return sets_;
+  }
+
+private:
+  bool enabled_; ///< Flag to indicate if the cache is enabled
+  CacheType type_; ///< Type of cache (instruction or data)
+  CacheConfig config_; ///< Configuration of the cache
+  CacheStats stats_; ///< Statistics for the cache
+
+  std::vector<CacheSet> sets_;
+  unsigned long set_count_ = 0;
+  unsigned long line_size_ = 0;
+
+  // Simple LRU timestamp counter
+  unsigned long access_counter_ = 0;
+
+  // Helper utilities
+  unsigned long addressToTag(uint64_t address) const;
+  unsigned long addressToSetIndex(uint64_t address) const;
+  void fetchLineToSet(unsigned long set_idx, unsigned long tag, uint64_t block_addr, Memory &memory, unsigned long line_idx);
 };
 
 

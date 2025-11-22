@@ -55,6 +55,7 @@ std::unique_ptr<VmBase> createVm() {
 
 
 int main(int argc, char *argv[]) {
+  bool cli_enable_api = false;
   if (argc <= 1) {
     std::cerr << "No arguments provided. Use --help for usage information.\n";
     return 1;
@@ -109,10 +110,17 @@ int main(int argc, char *argv[]) {
         globals::verbose_errors_print = true;
         std::cout << "Verbose error printing enabled.\n";
 
-    } else if (arg == "--vm-as-backend") {
-        globals::vm_as_backend = true;
-        std::cout << "VM backend mode enabled.\n";
-    } else if (arg == "--start-vm") {
+  } else if (arg == "--vm-as-backend") {
+
+    globals::vm_as_backend = true;
+    std::cout << "VM backend mode enabled." << std::endl;
+
+  } else if (arg == "--start-api") {
+
+    cli_enable_api = true;
+    std::cout << "API start requested via CLI." << std::endl;
+
+  } else if (arg == "--start-vm") {
         break;
 
     } else {
@@ -159,6 +167,22 @@ int main(int argc, char *argv[]) {
 
   std::thread vm_thread;
   bool vm_running = false;
+
+#ifdef ENABLE_API
+  // forward-declare server start/stop functions (implemented in src/api/server.cpp)
+  namespace api { 
+    void StartApiServer(const std::string &bind_addr, int port); 
+    void StopApiServer(); 
+  }
+
+  std::thread api_thread;
+  if (cli_enable_api) {
+    // start the API server in a joinable thread (we will stop + join on EXIT)
+    api_thread = std::thread([cli_api_bind, cli_api_port](){ 
+      api::StartApiServer(cli_api_bind, cli_api_port); 
+    });
+  }
+#endif
 
   auto launch_vm_thread = [&](auto fn) {
     if (vm_thread.joinable()) {
@@ -236,8 +260,7 @@ int main(int argc, char *argv[]) {
       vm->RequestStop();
       std::cout << "VM_STOPPED" << std::endl;
       vm->output_status_ = "VM_STOPPED";
-      vm->DumpState(globals::vm_state_dump_file_path);
-    } else if (command.type==command_handler::CommandType::STEP) {
+    vm->DumpState(globals::vm_state_dump_file_path);
       if (vm_running) continue;
       launch_vm_thread([&]() { vm->Step(); });
 
@@ -250,11 +273,16 @@ int main(int argc, char *argv[]) {
     } else if (command.type==command_handler::CommandType::RESET) {
       vm->Reset();
     } else if (command.type==command_handler::CommandType::EXIT) {
-      vm->RequestStop();
-      if (vm_thread.joinable()) vm_thread.join(); // ensure clean exit
-      vm->output_status_ = "VM_EXITED";
-      vm->DumpState(globals::vm_state_dump_file_path);
-      break;
+  vm->RequestStop();
+  if (vm_thread.joinable()) vm_thread.join(); // ensure clean exit
+  vm->output_status_ = "VM_EXITED";
+  vm->DumpState(globals::vm_state_dump_file_path);
+#ifdef ENABLE_API
+  // Stop the API server (if running) and join the thread so we exit cleanly
+  api::StopApiServer();
+  if (api_thread.joinable()) api_thread.join();
+#endif
+  break;
     } else if (command.type==command_handler::CommandType::ADD_BREAKPOINT) {
       vm->AddBreakpoint(std::stoul(command.args[0], nullptr, 10));
     } else if (command.type==command_handler::CommandType::REMOVE_BREAKPOINT) {
