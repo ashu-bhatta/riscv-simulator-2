@@ -28,4 +28,4 @@ int globals::branch_prediction_mode = 0;
 int globals::static_branch_policy = 0;
 
 // Number of bits for dynamic predictor counters (default 2)
-int globals::branch_prediction_bits = 2;
+int globals::branch_prediction_bits = 1;

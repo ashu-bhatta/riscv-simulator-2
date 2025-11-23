@@ -20,7 +20,7 @@ std::unique_ptr<VmBase> createVm() {
   auto vmtype = vm_config::config.getVmType();
   globals::pipeline_forwarding_enabled = false;
   globals::pipeline_hazard_detection_enabled = false;
-  globals::branch_prediction_mode = 0; // default none
+  globals::branch_prediction_mode = 1; // default none
 
   switch (vmtype) {
     case vm_config::VmTypes::SINGLE_STAGE:
