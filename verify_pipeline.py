@@ -1,4 +1,4 @@
-# Compares register dumps from single stage and multi stage VMs
+# Compares register dumps from 2 processor types (can change below in code)
 # python3 verify_pipeline.py ../examples/pipeline_test1.s
 
 import subprocess
@@ -177,7 +177,7 @@ def main():
         sys.exit(1)
         
     # 2. Run Multi Stage
-    if not run_vm(vm_path, assembly_file, "multi_stage_with_forwarding", multi_stage_out):
+    if not run_vm(vm_path, assembly_file, "multi_stage_with_both", multi_stage_out):
         print("Failed to run multi-stage simulation.")
         sys.exit(1)
         
