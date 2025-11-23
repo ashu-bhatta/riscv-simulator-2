@@ -10,12 +10,6 @@
 
 using namespace cache;
 
-static ReplacementPolicy setReplacementPolicy(const std::string &s) {
-  if (s == "LRU") return ReplacementPolicy::LRU;
-  if (s == "FIFO") return ReplacementPolicy::FIFO;
-  return ReplacementPolicy::Random;
-}
-
 Cache::Cache(const CacheConfig &cfg)
   : enabled_(true), type_(cfg.cache_type), config_(cfg), stats_{0,0,0} {
   // deduce line size from config.words_per_line (words is ambiguous); use size/lines

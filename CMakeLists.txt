@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.21)
 
 project(vm LANGUAGES CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -16,7 +18,7 @@ set(SRC_DIR "src")
 set(INCLUDE_DIR "include")
 set(TEST_DIR "test")
 
-option(ENABLE_API "Build API server (Drogon)" OFF)
+option(ENABLE_API "Build API server (Drogon)" ON)
 
 file(GLOB_RECURSE SRC_FILES "${SRC_DIR}/*.cpp")
 file(GLOB_RECURSE TEST_FILES "${TEST_DIR}/*.cpp")
@@ -27,9 +29,8 @@ target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -pedantic -froundin
 target_link_libraries(${PROJECT_NAME} PRIVATE m)
 
 if(ENABLE_API)
-    find_package(drogon REQUIRED)
+    find_package(Drogon REQUIRED)
 
-    # API sources (built only when ENABLE_API is ON)
     set(API_SOURCES
         src/api/api_vm_adapter.cpp
         src/api/server.cpp
@@ -38,8 +39,12 @@ if(ENABLE_API)
 
     add_library(sim_api STATIC ${API_SOURCES})
     target_include_directories(sim_api PRIVATE ${INCLUDE_DIR})
-    target_link_libraries(sim_api PRIVATE drogon::drogon)
+    target_link_libraries(sim_api PRIVATE Drogon::Drogon)
     target_compile_features(sim_api PRIVATE cxx_std_20)
+    # Ensure api sources are compiled with the ENABLE_API macro so
+    # editors / language servers that read compile commands see the
+    # same preprocessor state as the build.
+    target_compile_definitions(sim_api PRIVATE ENABLE_API)
 
     # Link API library into main executable
     target_link_libraries(${PROJECT_NAME} PRIVATE sim_api)
