@@ -128,9 +128,6 @@ void RV5SVM::ID() {
 
     uint64_t detect_rs1 = rs1;
     uint64_t detect_rs2 = rs2;
-    if (id_ex_reg_.control.alu_src) {
-        detect_rs2 = static_cast<uint64_t>(0); // indicate no rs2 dependency
-    }
 
     uint8_t stalls_needed = DetectHazard(detect_rs1, detect_rs2);
     if (globals::pipeline_hazard_detection_enabled && stalls_needed != 0) {
@@ -507,6 +504,13 @@ void RV5SVM::HandleSyscall() {
 void RV5SVM::MEM() {
     // If EX/MEM register is not valid, propagate a bubble
     if (!ex_mem_reg_.valid) {
+        mem_wb_reg_.prev_alu_result = mem_wb_reg_.alu_result;
+        mem_wb_reg_.prev_memory_result = mem_wb_reg_.memory_result;
+        mem_wb_reg_.prev_rd_addr = mem_wb_reg_.rd_addr;
+        mem_wb_reg_.prev_instruction = mem_wb_reg_.instruction;
+        mem_wb_reg_.prev_valid = mem_wb_reg_.valid;
+        mem_wb_reg_.prev_control = mem_wb_reg_.control;
+
         mem_wb_reg_.Reset();
         return;
     }
