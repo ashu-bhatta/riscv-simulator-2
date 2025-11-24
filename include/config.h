@@ -70,9 +70,9 @@ struct VmConfig {
   }
   // ---------------- Cache configuration ----------------
   bool cache_enabled = false;
-  uint64_t cache_capacity = 32768; // bytes (default 32 KB)
-  uint64_t cache_block_size = 64;  // bytes per cache line
-  uint64_t cache_associativity = 1; // 4-way set associative
+  uint64_t cache_capacity = 256; // bytes (default 256B)
+  uint64_t cache_block_size = 32;  // bytes per cache line
+  uint64_t cache_associativity = 1; // 1-way set associative
   std::string cache_replacement_policy = "LRU"; // LRU, FIFO, Random
   std::string cache_write_hit_policy = "WriteBack"; // WriteBack, WriteThrough
   std::string cache_write_miss_policy = "NoWriteAllocate"; // NoWriteAllocate, WriteAllocate

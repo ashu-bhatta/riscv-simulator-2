@@ -383,30 +383,104 @@ void DumpDisasssembly(const std::filesystem::path &filename, AssembledProgram &p
   program.instruction_number_disassembly_mapping = instruction_number_disassembly_mapping;
 }
 
-void DumpCache(const std::filesystem::path &filename, std::vector<cache::CacheSet>& cache_sets){
+void DumpCache(const std::filesystem::path &filename, std::vector<cache::CacheSet>& cache_sets, const std::string &label) {
   std::ofstream out(filename);
   if (!out) {
     std::cerr << "Failed to open cache dump output file: " << filename << std::endl;
     return;
   }
-  std::cout<<"Inside DumpCache\n";
-  out << "{\n";
-  for (size_t i = 0; i < cache_sets.size(); ++i) {
-    const auto &set = cache_sets[i];
-    out << "  {\n";
-    out << "    \"associativity\": " << set.associativity << ",\n";
-    out << "    \"lines\": [\n";
-    for (size_t j = 0; j < set.lines.size(); ++j) {
-      const auto &line = set.lines[j];
-      out << "      {\"tag\": " << line.tag << ", \"state\": " << static_cast<int>(line.state) << ", \"data_len\": " << line.data.size() << "}";
-      if (j + 1 < set.lines.size()) out << ",";
+
+  // Determine top-level key from label
+  std::string data_key = "data_cache";
+  std::string instr_key = "instruction_cache";
+  std::string selected_key = "cache";
+  if (label.find("Data") != std::string::npos || label.find("data") != std::string::npos) selected_key = data_key;
+  else if (label.find("Instruction") != std::string::npos || label.find("instruction") != std::string::npos) selected_key = instr_key;
+
+  // Build JSON manually
+  out << "{" << std::endl;
+  // start data_cache
+  out << "  \"" << data_key << "\": {" << std::endl;
+  if (selected_key == data_key) {
+    for (size_t set_idx = 0; set_idx < cache_sets.size(); ++set_idx) {
+      const auto &set = cache_sets[set_idx];
+      out << "    \"" << set_idx << "\": {\n";
+      for (size_t line_idx = 0; line_idx < set.lines.size(); ++line_idx) {
+        const auto &line = set.lines[line_idx];
+        bool valid = (line.state != cache::CacheLineState::Invalid);
+        bool dirty = (line.state == cache::CacheLineState::Dirty);
+
+        std::string s  = "";
+        uint32_t tag_copy = line.tag;
+        for(int i=0; i<32;i++) {
+          s = ((tag_copy % 2) ? "1" : "0") + s;
+          tag_copy /= 2;
+        }
+        out << "      \"" << s << "\": {";
+        out << "\"valid\":" << (valid?1:0) << ", \"dirty\":" << (dirty?1:0) << ", \"words\": [";
+
+        size_t bytes = line.data.size();
+        size_t words = bytes / 4;
+        for (size_t w = 0; w < words; ++w) {
+          uint32_t word = 0;
+          for (size_t b = 0; b < 4; ++b) {
+            word |= static_cast<uint32_t>(line.data[w*4 + b]) << (8*b);
+          }
+          std::ostringstream oss;
+          oss << "\"0x" << std::hex << std::setw(8) << std::setfill('0') << word << "\"" << std::dec;
+          out << oss.str();
+          if (w + 1 < words) out << ", ";
+        }
+
+        out << "]}";
+        if (line_idx + 1 < set.lines.size()) out << ",";
+        out << "\n";
+      }
+      out << "    }";
+      if (set_idx + 1 < cache_sets.size()) out << ",";
       out << "\n";
     }
-    out << "    ]\n";
-    out << "  }";
-    if (i + 1 < cache_sets.size()) out << ",";
-    out << "\n";
   }
+  out << "  }," << std::endl;
+
+  // start instruction_cache (empty unless this dump is for instruction cache)
+  out << "  \"" << instr_key << "\": {" << std::endl;
+  if (selected_key == instr_key) {
+    for (size_t set_idx = 0; set_idx < cache_sets.size(); ++set_idx) {
+      const auto &set = cache_sets[set_idx];
+      out << "    \"" << set_idx << "\": {\n";
+      for (size_t line_idx = 0; line_idx < set.lines.size(); ++line_idx) {
+        const auto &line = set.lines[line_idx];
+        bool valid = (line.state != cache::CacheLineState::Invalid);
+        bool dirty = (line.state == cache::CacheLineState::Dirty);
+
+        out << "      \"" << line_idx << "\": {";
+        out << "\"valid\":" << (valid?1:0) << ", \"dirty\":" << (dirty?1:0) << ", \"words\": [";
+
+        size_t bytes = line.data.size();
+        size_t words = bytes / 4;
+        for (size_t w = 0; w < words; ++w) {
+          uint32_t word = 0;
+          for (size_t b = 0; b < 4; ++b) {
+            word |= static_cast<uint32_t>(line.data[w*4 + b]) << (8*b);
+          }
+          std::ostringstream oss;
+          oss << "\"0x" << std::hex << std::setw(8) << std::setfill('0') << word << "\"" << std::dec;
+          out << oss.str();
+          if (w + 1 < words) out << ", ";
+        }
+
+        out << "]}";
+        if (line_idx + 1 < set.lines.size()) out << ",";
+        out << "\n";
+      }
+      out << "    }";
+      if (set_idx + 1 < cache_sets.size()) out << ",";
+      out << "\n";
+    }
+  }
+  out << "  }" << std::endl;
+
   out << "}\n";
   out.close();
 }

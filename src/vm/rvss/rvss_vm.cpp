@@ -30,7 +30,7 @@ using instruction_set::get_instr_encoding;
 RVSSVM::RVSSVM() : VmBase() {
   DumpRegisters(globals::registers_dump_file_path, registers_);
   DumpState(globals::vm_state_dump_file_path);
-  if(vm_config::config.cache_enabled)  DumpCache(globals::cache_dump_file_path, memory_controller_.GetCache());
+  if(vm_config::config.cache_enabled)  DumpCache(globals::cache_dump_file_path, memory_controller_.GetCache(), "Data Cache");
 }
 
 RVSSVM::~RVSSVM() = default;
@@ -821,7 +821,7 @@ void RVSSVM::Run() {
   }
   DumpRegisters(globals::registers_dump_file_path, registers_);
   DumpState(globals::vm_state_dump_file_path);
-  DumpCache(globals::cache_dump_file_path, memory_controller_.GetCache());
+    DumpCache(globals::cache_dump_file_path, memory_controller_.GetCache(), "Data Cache");
 }
 
 void RVSSVM::DebugRun() {
@@ -926,12 +926,7 @@ void RVSSVM::Undo() {
   StepDelta last = undo_stack_.top();
   undo_stack_.pop();
 
-  // if (!history_.can_undo()) {
-  //     std::cout << "Nothing to undo.\n";
-  //     return;
-  // }
-
-  // StepDelta last = history_.undo();
+ 
 
   for (const auto &change : last.register_changes) {
     switch (change.reg_type) {

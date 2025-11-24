@@ -53,7 +53,12 @@ void DumpRegisters(const std::filesystem::path &filename, RegisterFile &register
 
 void DumpDisasssembly(const std::filesystem::path &filename, AssembledProgram &program);
 
-void DumpCache(const std::filesystem::path &filename, std::vector<cache::CacheSet> &sets_);
+// Dumps cache contents. If `label` is empty a generic "Cache" title is used.
+// Format (text):
+// <label>
+// Set <set_idx>:
+// <line_idx>: valid=<0|1> dirty=<0|1> 0x<word0> 0x<word1> ...
+void DumpCache(const std::filesystem::path &filename, std::vector<cache::CacheSet> &sets_, const std::string &label = "");
 
 void SetupConfigFile();
 
