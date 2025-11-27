@@ -227,7 +227,7 @@ When a branch is mispredicted, wrong-path instructions may have already modified
 
 ---
 
-## 6. Additional Feature - Cache Implementation ✅ **COMPLETED**
+## 6. Additional Feature - Cache Implementation
 
 We added a configurable, basic set-associative cache to the simulator. The cache implementation is in `include/vm/cache/cache.h` and `src/vm/cache/cache.cpp`. It is integrated with the `MemoryController` (see `include/vm/memory_controller.h`) and can be enabled at runtime via the configuration flags in `config.h`.
 
@@ -285,5 +285,10 @@ Testing
 
 Known limitations & future improvements
 - Replacement policy enum supports LRU/FIFO/Random but current code only uses a LRU scheme.
+- Error detection for misconfigured cache parameters (e.g., associativity larger than number of lines, block size being divisible by the word size(4)) is not implemented.
+- The existing memory read operation reads and writes one byte at a time, which is inefficient for cache line fills and write-backs, and also reflects in the stats. Future improvements could include implementing block read/write operations to optimize performance.
+- The stats will be different from other simulators that implement block read/writes for cache operations and also because we have integrated cache write operations with the existing byte-wise memory interface, which does not distinguish between data cache and instruction cache operations. Testing has been done by observing the cache dump after running various test programs.
+
+![alt text](CacheDump.png)
 
 

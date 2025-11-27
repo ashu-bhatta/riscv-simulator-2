@@ -818,10 +818,13 @@ void RVSSVM::Run() {
   if (program_counter_ >= program_size_) {
     std::cout << "VM_PROGRAM_END" << std::endl;
     output_status_ = "VM_PROGRAM_END";
+    std::cout << "Cache Status:" << std::endl;
+    memory_controller_.PrintCacheStatus();
+    std::cout << "========================================" << std::endl;
   }
   DumpRegisters(globals::registers_dump_file_path, registers_);
   DumpState(globals::vm_state_dump_file_path);
-    DumpCache(globals::cache_dump_file_path, memory_controller_.GetCache(), "Data Cache");
+  if(vm_config::config.cache_enabled)  DumpCache(globals::cache_dump_file_path, memory_controller_.GetCache(), "Data Cache");
 }
 
 void RVSSVM::DebugRun() {
@@ -871,9 +874,13 @@ void RVSSVM::DebugRun() {
   if (program_counter_ >= program_size_) {
     std::cout << "VM_PROGRAM_END" << std::endl;
     output_status_ = "VM_PROGRAM_END";
+    std::cout << "Cache Status:" << std::endl;
+    memory_controller_.PrintCacheStatus();
+    std::cout << "========================================" << std::endl;
   }
   DumpRegisters(globals::registers_dump_file_path, registers_);
   DumpState(globals::vm_state_dump_file_path);
+  if(vm_config::config.cache_enabled)  DumpCache(globals::cache_dump_file_path, memory_controller_.GetCache(), "Data Cache");
 }
 
 void RVSSVM::Step() {
