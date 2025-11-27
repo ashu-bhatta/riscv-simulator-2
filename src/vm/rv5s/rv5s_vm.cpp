@@ -307,9 +307,22 @@ void RV5SVM::ExecuteFloat(ID_EX_Register& id_ex) {
         rm = registers_.ReadCsr(0x002); // Read rounding mode from fcsr
     }
 
+    uint64_t operand1 = id_ex.rs1_val;
+    uint64_t operand2 = id_ex.rs2_val;
+
     uint64_t rs1_val = id_ex.rs1_val;
     uint64_t rs2_val = id_ex.rs2_val;
     uint64_t rs3_val = registers_.ReadFpr(rs3);
+
+    if (globals::pipeline_forwarding_enabled) {
+        if (id_ex.rs1_addr != 0) {
+            operand1 = ResolveForwarding(id_ex.rs1_addr, operand1);
+        }
+        if (!id_ex.control.alu_src && id_ex.rs2_addr != 0) {
+            // Only forward rs2 when it's coming from a register (not an immediate)
+            operand2 = ResolveForwarding(id_ex.rs2_addr, operand2);
+        }
+    }
 
     if (id_ex.control.alu_src) {
         rs2_val = static_cast<uint64_t>(id_ex.imm);
@@ -329,9 +342,22 @@ void RV5SVM::ExecuteDouble(ID_EX_Register& id_ex) {
     uint8_t rs3 = (instruction >> 27) & 0b11111;
     uint8_t rm = funct3;
 
+    uint64_t operand1 = id_ex.rs1_val;
+    uint64_t operand2 = id_ex.rs2_val;
+
     uint64_t rs1_val = id_ex.rs1_val;
     uint64_t rs2_val = id_ex.rs2_val;
     uint64_t rs3_val = registers_.ReadFpr(rs3);
+
+    if (globals::pipeline_forwarding_enabled) {
+        if (id_ex.rs1_addr != 0) {
+            operand1 = ResolveForwarding(id_ex.rs1_addr, operand1);
+        }
+        if (!id_ex.control.alu_src && id_ex.rs2_addr != 0) {
+            // Only forward rs2 when it's coming from a register (not an immediate)
+            operand2 = ResolveForwarding(id_ex.rs2_addr, operand2);
+        }
+    }
 
     if (id_ex.control.alu_src) {
         rs2_val = static_cast<uint64_t>(id_ex.imm);
