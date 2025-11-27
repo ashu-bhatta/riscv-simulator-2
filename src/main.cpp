@@ -291,12 +291,7 @@ int main(int argc, char *argv[]) {
                   << std::dec;
         std::cout << "VM_REGISTER_VAL_END"<< std::endl;
       } 
-    } else if (command.type==command_handler::CommandType::GET_PIPELINE_STATE) {
-      std::cout << "VM_PIPELINE_STATE_START" << std::endl;
-      std::cout << vm->GetPipelineStateJSON() << std::endl;
-      std::cout << "VM_PIPELINE_STATE_END" << std::endl;
     }
-
   
     else if (command.type==command_handler::CommandType::MODIFY_MEMORY) {
       if (command.args.size() != 3) {
