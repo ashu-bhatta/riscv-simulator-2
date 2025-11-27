@@ -37,6 +37,7 @@ RV5SVM::RV5SVM() : VmBase() {
     branch_table_.assign(RV5SVM::kBpTableSize, 3);
     DumpRegisters(globals::registers_dump_file_path, registers_);
     DumpState(globals::vm_state_dump_file_path);
+    if(vm_config::config.cache_enabled)  DumpCache(globals::cache_dump_file_path, memory_controller_.GetCache(), "Data Cache");
 }
 
 RV5SVM::~RV5SVM() = default;
@@ -989,6 +990,7 @@ void RV5SVM::Step() {
 
     DumpRegisters(globals::registers_dump_file_path, registers_);
     DumpState(globals::vm_state_dump_file_path);
+    if(vm_config::config.cache_enabled)  DumpCache(globals::cache_dump_file_path, memory_controller_.GetCache(), "Data Cache");
 }
 
 // ============================================================================
@@ -1079,8 +1081,14 @@ void RV5SVM::Run() {
     }
     std::cout << "========================================" << std::endl;
 
+    std::cout << "Cache Status:" << std::endl;
+    memory_controller_.PrintCacheStatus();
+    std::cout << "========================================" << std::endl;
+
+
     DumpRegisters(globals::registers_dump_file_path, registers_);
     DumpState(globals::vm_state_dump_file_path);
+    if(vm_config::config.cache_enabled)  DumpCache(globals::cache_dump_file_path, memory_controller_.GetCache(), "Data Cache");
 }
 
 // ============================================================================

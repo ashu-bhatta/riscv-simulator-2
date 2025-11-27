@@ -31,7 +31,6 @@ public:
     }
 
     void PrintCacheStatus() const {
-      std::cout << "Cache Status:" << std::endl;
       if (cache_) {
         cache_->PrintStats();
       } else {
