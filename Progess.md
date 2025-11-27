@@ -279,5 +279,4 @@ The work will be divided as follow to allow for parallel development.
     1.  Implement the `HazardDetectionUnit` to identify RAW and load-use hazards in the ID stage.
     2.  Implement the logic for stalling the pipeline and injecting bubbles.
     3.  Implement the control hazard logic: flushing the pipeline on mispredicted branches and updating the PC.
-    4.  Update the VM statistics (`cpi_`, `stall_cycles_`, etc.) to reflect pipeline behavior.
-
+    4.  Update the VM statistics (`cpi_`, `stall_cycles_`, etc.) to reflect pipeline behavior

@@ -20,7 +20,11 @@ std::unique_ptr<VmBase> createVm() {
   auto vmtype = vm_config::config.getVmType();
   globals::pipeline_forwarding_enabled = false;
   globals::pipeline_hazard_detection_enabled = false;
-  globals::branch_prediction_mode = 0; // default none
+  
+  // Initialize branch prediction from config
+  globals::branch_prediction_mode = vm_config::config.branch_prediction_mode;
+  globals::branch_prediction_bits = vm_config::config.branch_prediction_bits;
+  globals::static_branch_policy = vm_config::config.static_branch_policy;
 
   switch (vmtype) {
     case vm_config::VmTypes::SINGLE_STAGE:
@@ -288,7 +292,6 @@ int main(int argc, char *argv[]) {
         std::cout << "VM_REGISTER_VAL_END"<< std::endl;
       } 
     }
-
   
     else if (command.type==command_handler::CommandType::MODIFY_MEMORY) {
       if (command.args.size() != 3) {

@@ -32,9 +32,9 @@ RV5SVM::RV5SVM() : VmBase() {
     FlushPipeline();
     total_cycles_ = 0;
     bubbles_inserted_ = 0;
-    // Initialize branch predictor table (2-bit counters initialized to weakly not-taken = 1)
+    // Initialize branch predictor table (2-bit counters initialized to strongly taken = 3)
     bp_mask_ = kBpTableSize - 1;
-    branch_table_.assign(RV5SVM::kBpTableSize, 1);
+    branch_table_.assign(RV5SVM::kBpTableSize, 3);
     DumpRegisters(globals::registers_dump_file_path, registers_);
     DumpState(globals::vm_state_dump_file_path);
 }
@@ -307,9 +307,22 @@ void RV5SVM::ExecuteFloat(ID_EX_Register& id_ex) {
         rm = registers_.ReadCsr(0x002); // Read rounding mode from fcsr
     }
 
+    uint64_t operand1 = id_ex.rs1_val;
+    uint64_t operand2 = id_ex.rs2_val;
+
     uint64_t rs1_val = id_ex.rs1_val;
     uint64_t rs2_val = id_ex.rs2_val;
     uint64_t rs3_val = registers_.ReadFpr(rs3);
+
+    if (globals::pipeline_forwarding_enabled) {
+        if (id_ex.rs1_addr != 0) {
+            operand1 = ResolveForwarding(id_ex.rs1_addr, operand1);
+        }
+        if (!id_ex.control.alu_src && id_ex.rs2_addr != 0) {
+            // Only forward rs2 when it's coming from a register (not an immediate)
+            operand2 = ResolveForwarding(id_ex.rs2_addr, operand2);
+        }
+    }
 
     if (id_ex.control.alu_src) {
         rs2_val = static_cast<uint64_t>(id_ex.imm);
@@ -329,9 +342,22 @@ void RV5SVM::ExecuteDouble(ID_EX_Register& id_ex) {
     uint8_t rs3 = (instruction >> 27) & 0b11111;
     uint8_t rm = funct3;
 
+    uint64_t operand1 = id_ex.rs1_val;
+    uint64_t operand2 = id_ex.rs2_val;
+
     uint64_t rs1_val = id_ex.rs1_val;
     uint64_t rs2_val = id_ex.rs2_val;
     uint64_t rs3_val = registers_.ReadFpr(rs3);
+
+    if (globals::pipeline_forwarding_enabled) {
+        if (id_ex.rs1_addr != 0) {
+            operand1 = ResolveForwarding(id_ex.rs1_addr, operand1);
+        }
+        if (!id_ex.control.alu_src && id_ex.rs2_addr != 0) {
+            // Only forward rs2 when it's coming from a register (not an immediate)
+            operand2 = ResolveForwarding(id_ex.rs2_addr, operand2);
+        }
+    }
 
     if (id_ex.control.alu_src) {
         rs2_val = static_cast<uint64_t>(id_ex.imm);
@@ -624,24 +650,44 @@ void RV5SVM::MEM() {
         }
     }
 
-    // Handle branch taken: flush IF and ID stages
-    if (ex_mem_reg_.branch_taken) {
-        program_counter_ = ex_mem_reg_.branch_target;
-        if_id_reg_.Reset();
-        id_ex_reg_.Reset();
-    }
+    // Unified Branch Resolution Logic
+    if (ex_mem_reg_.valid && ex_mem_reg_.control.branch) {
+        bool mispredicted = (ex_mem_reg_.predicted_taken != ex_mem_reg_.branch_taken);
 
-    // Update branch predictor for branches resolved in MEM stage if enabled
-    if (ex_mem_reg_.valid && ex_mem_reg_.control.branch && globals::branch_prediction_mode > 0) {
-        // Update predictor using the PC where the branch was fetched
-        UpdateBranchPredictor(ex_mem_reg_.pc, ex_mem_reg_.branch_taken);
+        // Update predictor if enabled (dynamic only)
+        if (globals::branch_prediction_mode == 2) {
+             UpdateBranchPredictor(ex_mem_reg_.pc, ex_mem_reg_.branch_taken);
+        }
 
-        // If actual outcome differs from prediction, it's a misprediction
-        if (ex_mem_reg_.predicted_taken != ex_mem_reg_.branch_taken) {
+        if (mispredicted) {
             branch_mispredictions_++;
-            // Flush IF and ID since they may contain wrong-path instructions
+            
+            // Flush pipeline (IF and ID stages have wrong-path instructions)
             if_id_reg_.Reset();
             id_ex_reg_.Reset();
+
+            // Restore PC to correct path
+            if (ex_mem_reg_.branch_taken) {
+                // Predicted Not Taken, but Actual Taken -> Go to Target
+                // std::cerr << "Mispredict: Pred NT, Act T. PC=" << ex_mem_reg_.pc << " Target=" << ex_mem_reg_.branch_target << std::endl;
+                program_counter_ = ex_mem_reg_.branch_target;
+            } else {
+                // Predicted Taken, but Actual Not Taken -> Go to Fall-through (PC+4)
+                // std::cerr << "Mispredict: Pred T, Act NT. PC=" << ex_mem_reg_.pc << " Next=" << ex_mem_reg_.pc + 4 << std::endl;
+                program_counter_ = ex_mem_reg_.pc + 4;
+            }
+        } else {
+            // Correctly predicted
+            // If predicted taken (and actual taken), PC was already updated in ID stage.
+            // If predicted not taken (and actual not taken), PC continued sequentially.
+            // No action needed.
+        }
+    } else if (ex_mem_reg_.valid && ex_mem_reg_.control.jump) {
+        
+        if (ex_mem_reg_.branch_taken) {
+             program_counter_ = ex_mem_reg_.branch_target;
+             if_id_reg_.Reset();
+             id_ex_reg_.Reset();
         }
     }
 

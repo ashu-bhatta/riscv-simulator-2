@@ -36,11 +36,15 @@ struct VmConfig {
   uint64_t text_section_start = 0x0; // Default start address for text section
   uint64_t bss_section_start = 0x11000000; // Default start address for BSS section
 
-  uint64_t instruction_execution_limit = 100;
+  uint64_t instruction_execution_limit = 100000;
 
   bool m_extension_enabled = true;
   bool f_extension_enabled = true;
   bool d_extension_enabled = true;
+
+  int branch_prediction_mode = 0;
+  int branch_prediction_bits = 2;
+  int static_branch_policy = 0;
 
   void setVmType(const VmTypes &type) {
     vm_type = type;
@@ -121,7 +125,20 @@ struct VmConfig {
 
   void setBranchPredBits(int bits) {
     globals::branch_prediction_bits = bits;
+    branch_prediction_bits = bits;
     std::cout << "Branch predictor bits set to: " << bits << std::endl;
+  }
+
+  void setBranchPredictionMode(int mode) {
+    globals::branch_prediction_mode = mode;
+    branch_prediction_mode = mode;
+    std::cout << "Branch prediction mode set to: " << mode << std::endl;
+  }
+
+  void setStaticBranchPolicy(int policy) {
+    globals::static_branch_policy = policy;
+    static_branch_policy = policy;
+    std::cout << "Static branch policy set to: " << policy << std::endl;
   }
 
   bool getDExtensionEnabled() const {
@@ -154,6 +171,40 @@ struct VmConfig {
           throw std::invalid_argument("branch_prediction_bits must be between 1 and 8");
         }
         setBranchPredBits(bits);
+      } else if (key == "branch_prediction_mode" || key == "branch_prediction") {
+        if (value == "none") {
+          setBranchPredictionMode(0);
+        } else if (value == "static") {
+          setBranchPredictionMode(1);
+        } else if (value == "dynamic") {
+          setBranchPredictionMode(2);
+        } else {
+          try {
+            int mode = std::stoi(value);
+            if (mode < 0 || mode > 2) {
+               throw std::invalid_argument("branch_prediction_mode must be 0, 1, or 2");
+            }
+            setBranchPredictionMode(mode);
+          } catch (...) {
+            throw std::invalid_argument("Unknown branch prediction mode: " + value);
+          }
+        }
+      } else if (key == "static_branch_policy") {
+        if (value == "not_taken") {
+          setStaticBranchPolicy(0);
+        } else if (value == "taken") {
+          setStaticBranchPolicy(1);
+        } else {
+          try {
+            int policy = std::stoi(value);
+            if (policy < 0 || policy > 1) {
+               throw std::invalid_argument("static_branch_policy must be 0 or 1");
+            }
+            setStaticBranchPolicy(policy);
+          } catch (...) {
+            throw std::invalid_argument("Unknown static branch policy: " + value);
+          }
+        }
       }
       
       else {
