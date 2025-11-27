@@ -72,6 +72,23 @@ struct VmConfig {
   uint64_t getMemoryBlockSize() const {
     return memory_block_size;
   }
+  // ---------------- Cache configuration ----------------
+  bool cache_enabled = false;
+  uint64_t cache_capacity = 256; // bytes (default 256B)
+  uint64_t cache_block_size = 32;  // bytes per cache line
+  uint64_t cache_associativity = 1; // 1-way set associative
+  std::string cache_replacement_policy = "LRU"; // LRU, FIFO, Random
+  std::string cache_write_hit_policy = "WriteBack"; // WriteBack, WriteThrough
+  std::string cache_write_miss_policy = "NoWriteAllocate"; // NoWriteAllocate, WriteAllocate
+
+  void setCacheEnabled(bool enabled) { cache_enabled = enabled; }
+  void setCacheCapacity(uint64_t c) { cache_capacity = c; }
+  void setCacheBlockSize(uint64_t b) { cache_block_size = b; }
+  void setCacheAssociativity(uint64_t a) { cache_associativity = a; }
+  void setCacheReplacementPolicy(const std::string &p) { cache_replacement_policy = p; }
+  void setCacheWriteHitPolicy(const std::string &p) { cache_write_hit_policy = p; }
+  void setCacheWriteMissPolicy(const std::string &p) { cache_write_miss_policy = p; }
+  // ---------------------------------------------------
   void setDataSectionStart(uint64_t start) {
     data_section_start = start;
   }
@@ -254,6 +271,28 @@ struct VmConfig {
         }
       }
     }
+    else if (section == "Cache") {
+      if (key == "enabled") {
+        if (value == "true") setCacheEnabled(true);
+        else if (value == "false") setCacheEnabled(false);
+        else throw std::invalid_argument("Unknown value: " + value);
+      } else if (key == "capacity") {
+        setCacheCapacity(std::stoull(value));
+      } else if (key == "block_size") {
+        setCacheBlockSize(std::stoull(value));
+      } else if (key == "associativity") {
+        setCacheAssociativity(std::stoull(value));
+      } else if (key == "replacement_policy") {
+        setCacheReplacementPolicy(value);
+      } else if (key == "write_hit_policy") {
+        setCacheWriteHitPolicy(value);
+      } else if (key == "write_miss_policy") {
+        setCacheWriteMissPolicy(value);
+      } else {
+        throw std::invalid_argument("Unknown key: " + key);
+      }
+    }
+
     else {
       throw std::invalid_argument("Unknown section: " + section);
     }

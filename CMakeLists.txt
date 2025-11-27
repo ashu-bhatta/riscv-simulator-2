@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.21)
 
 project(vm LANGUAGES CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -15,6 +17,7 @@ option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
 set(SRC_DIR "src")
 set(INCLUDE_DIR "include")
 set(TEST_DIR "test")
+
 
 file(GLOB_RECURSE SRC_FILES "${SRC_DIR}/*.cpp")
 file(GLOB_RECURSE TEST_FILES "${TEST_DIR}/*.cpp")

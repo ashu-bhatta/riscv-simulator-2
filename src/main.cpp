@@ -113,10 +113,12 @@ int main(int argc, char *argv[]) {
         globals::verbose_errors_print = true;
         std::cout << "Verbose error printing enabled.\n";
 
-    } else if (arg == "--vm-as-backend") {
-        globals::vm_as_backend = true;
-        std::cout << "VM backend mode enabled.\n";
-    } else if (arg == "--start-vm") {
+  } else if (arg == "--vm-as-backend") {
+
+    globals::vm_as_backend = true;
+    std::cout << "VM backend mode enabled." << std::endl;
+
+  } else if (arg == "--start-vm") {
         break;
 
     } else {
@@ -163,6 +165,7 @@ int main(int argc, char *argv[]) {
 
   std::thread vm_thread;
   bool vm_running = false;
+
 
   auto launch_vm_thread = [&](auto fn) {
     if (vm_thread.joinable()) {
@@ -240,8 +243,7 @@ int main(int argc, char *argv[]) {
       vm->RequestStop();
       std::cout << "VM_STOPPED" << std::endl;
       vm->output_status_ = "VM_STOPPED";
-      vm->DumpState(globals::vm_state_dump_file_path);
-    } else if (command.type==command_handler::CommandType::STEP) {
+    vm->DumpState(globals::vm_state_dump_file_path);
       if (vm_running) continue;
       launch_vm_thread([&]() { vm->Step(); });
 
@@ -254,11 +256,11 @@ int main(int argc, char *argv[]) {
     } else if (command.type==command_handler::CommandType::RESET) {
       vm->Reset();
     } else if (command.type==command_handler::CommandType::EXIT) {
-      vm->RequestStop();
-      if (vm_thread.joinable()) vm_thread.join(); // ensure clean exit
-      vm->output_status_ = "VM_EXITED";
-      vm->DumpState(globals::vm_state_dump_file_path);
-      break;
+  vm->RequestStop();
+  if (vm_thread.joinable()) vm_thread.join(); // ensure clean exit
+  vm->output_status_ = "VM_EXITED";
+  vm->DumpState(globals::vm_state_dump_file_path);
+  break;
     } else if (command.type==command_handler::CommandType::ADD_BREAKPOINT) {
       vm->AddBreakpoint(std::stoul(command.args[0], nullptr, 10));
     } else if (command.type==command_handler::CommandType::REMOVE_BREAKPOINT) {
