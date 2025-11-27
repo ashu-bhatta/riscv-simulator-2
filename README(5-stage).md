@@ -1,16 +1,20 @@
-The following have been added as part of the in-house simlator extension:
+The following commands have been added as part of the in-house simlator extension:
 
-1.Extension of processor type to 
-    1. single stage
-    2. multi stage
-    3. multi stage with forwarding
-    4. multi stage with hazard detection
-    5. multi stage with both 
+- `modify_config` or `mconfig`: `Section`, `Key`, `Value`
+  - Modifies the internal configuration by setting the specified key in the given section to the provided value.
+  - `Execution`
+    - `processor_type` (string) : `single_stage` | `multi_stage`  | `multi_stage_with_forwarding` | `multi_stage_with_hazard_detection` | `multi_stage_with_both`
+  - `Cache`
+    - `enabled` : `true` | `false`
+    - `capacity` : (in Bytes)
+    - `block_size` : (Bytes per line)
+    - `associativity` : (integer)
+    - `replacement_policy` : `LRU`
+    - `write_hit_policy` : `WriteBack` | `WriteThrough`
+    - `write_miss_policy` : `NoWriteAllocate` | `WriteAllocate`  
 
-2. Cache 
 
-See [Commands](COMMANDS.md) for a list of commands that have been added in the modify config section.
-
+Follow the standard steps that was used to run the origin in house simulator , except change to one of the following configurations
 
 
 
