@@ -20,15 +20,10 @@ struct ID_EX_Register;
 struct EX_MEM_Register;
 struct MEM_WB_Register;
 
-/**
- * @brief Pipeline register between IF and ID stages
- * Carries instruction and PC from Fetch to Decode
- */
 struct IF_ID_Register {
-  uint64_t pc = 0;                // Program counter of this instruction
-  uint32_t instruction = 0x00000013; // Instruction word (default: NOP/addi x0, x0, 0)
-  bool valid = false;             // Is this a valid instruction (not a bubble)?
-  
+  uint64_t pc = 0;                
+  uint32_t instruction = 0x00000013; 
+  bool valid = false;            
   void Reset() {
     pc = 0;
     instruction = 0x00000013; // NOP
@@ -36,10 +31,6 @@ struct IF_ID_Register {
   }
 };
 
-/**
- * @brief Pipeline register between ID and EX stages
- * Carries decoded values and control signals
- */
 struct ID_EX_Register {
   // Data values
   uint64_t pc = 0;
@@ -81,10 +72,6 @@ struct ID_EX_Register {
   }
 };
 
-/**
- * @brief Pipeline register between EX and MEM stages
- * Carries ALU result and control signals
- */
 struct EX_MEM_Register {
   // Data values
   uint64_t pc = 0;
@@ -116,10 +103,6 @@ struct EX_MEM_Register {
   }
 };
 
-/**
- * @brief Pipeline register between MEM and WB stages
- * Carries memory result and final writeback data
- */
 struct MEM_WB_Register {
   int64_t alu_result = 0;         // ALU result (for R-type, I-type)
   int64_t memory_result = 0;      // Data read from memory (for loads)
@@ -150,10 +133,7 @@ struct MEM_WB_Register {
   }
 };
 
-/**
- * @brief 5-Stage Pipelined RISC-V VM
- * Implements IF -> ID -> EX -> MEM -> WB pipeline
- */
+
 class RV5SVM : public VmBase {
 public:
   // Structures to record architectural changes for undo/redo
@@ -225,50 +205,21 @@ public:
   
   std::atomic<bool> stop_requested_ = false;
 
-  // Constructor & Destructor
   RV5SVM();
   ~RV5SVM();
 
-  // ============ Pipeline Stage Methods ============
-  
-  /**
-   * @brief Instruction Fetch (IF) Stage
-   * Fetches instruction from memory and updates IF/ID register
-   */
   void IF();
-  
-  /**
-   * @brief Instruction Decode (ID) Stage
-   * Decodes instruction, reads registers, generates control signals
-   */
   void ID();
-  
-  /**
-   * @brief Execute (EX) Stage
-   * Performs ALU operations, calculates addresses, resolves branches
-   */
   void EX();
-  
-  /**
-   * @brief Memory Access (MEM) Stage
-   * Reads from or writes to memory
-   */
   void MEM();
-  
-  /**
-   * @brief Write Back (WB) Stage
-   * Writes results back to register file
-   */
   void WB();
 
-  // ============ Helper Methods (similar to RVSS) ============
   void ExecuteAlu(ID_EX_Register& id_ex);
   void ExecuteFloat(ID_EX_Register& id_ex);
   void ExecuteDouble(ID_EX_Register& id_ex);
   void ExecuteCsr(ID_EX_Register& id_ex);
   void HandleSyscall();
   
-  // ============ VmBase Overrides ============
   void Run() override;
   void DebugRun() override;
   void Step() override;
@@ -284,36 +235,30 @@ public:
     std::cout << "rv5svm (5-stage pipeline)" << std::endl;
   }
   
-  // ============ Pipeline-Specific Methods ============
-  void FlushPipeline();           // Clear all pipeline registers (for reset)
-  void InsertBubble();            // Insert a NOP bubble in ID/EX
-  bool IsPipelineEmpty();         // Check if all stages are empty
+  void FlushPipeline();           
+  void InsertBubble();            
+  bool IsPipelineEmpty();         
 
   uint8_t DetectHazard(uint64_t rs1, uint64_t rs2);
   uint64_t ResolveForwarding(uint8_t src_reg, uint64_t reg_value); 
 
-  // Branch predictor helpers
   bool GetBranchPrediction(uint64_t pc);
   void UpdateBranchPredictor(uint64_t pc, bool taken);
   
 private:
   void PrintPipelineStatus();
 
-  // Temporary storage during execution (similar to RVSS)
   int64_t current_alu_result_ = 0;
   int64_t current_mem_result_ = 0;
   uint64_t current_return_address_ = 0;
   
-  // CSR intermediate values
   uint16_t csr_target_address_ = 0;
   uint64_t csr_old_value_ = 0;
   uint64_t csr_write_val_ = 0;
   uint8_t csr_uimm_ = 0;
 
-  // Branch predictor (2-bit bimodal)
   std::vector<uint8_t> branch_table_;
   size_t bp_mask_ = 0;
-  static constexpr size_t kBpTableSize = 1024; // must be power of two
-};
+  static constexpr size_t kBpTableSize = 1024; 
 
-#endif // RV5S_VM_H
+#endif 

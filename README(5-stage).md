@@ -4,6 +4,9 @@ The following commands have been added as part of the in-house simlator extensio
   - Modifies the internal configuration by setting the specified key in the given section to the provided value.
   - `Execution`
     - `processor_type` (string) : `single_stage` | `multi_stage`  | `multi_stage_with_forwarding` | `multi_stage_with_hazard_detection` | `multi_stage_with_both`
+    - `branch_prediction` : `none` | `static` | `dynamic`
+    - `static_branch_policy` : `taken` | `not_taken`
+    - `branch_prediction_bits` : (integer b/w 1-8)
   - `Cache`
     - `enabled` : `true` | `false`
     - `capacity` : (in Bytes)
@@ -15,6 +18,16 @@ The following commands have been added as part of the in-house simlator extensio
 
 
 Follow the standard steps that was used to run the origin in house simulator , except change to one of the following configurations
+
+- `run`
+  - Executes the loaded file, without considering breakpoints and no delay in steps.
+
+- `step`
+  - Executes the next step (cycle for multi stage) in the loaded file.
+
+- `undo`
+  - Reverts the last executed step in the loaded file.
+
 
 
 

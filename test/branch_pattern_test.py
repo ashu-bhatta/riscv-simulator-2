@@ -19,10 +19,6 @@ import os
 import time
 
 def run_vm_get_registers(vm_path, assembly_file, config_commands, wait_for_stats=False):
-    """
-    Runs the VM with the specified configuration and returns register dump and stats.
-    Returns (registers_dict, stats_dict) or (None, None) on failure.
-    """
     try:
         process = subprocess.Popen(
             [vm_path, "--start-vm"],
@@ -125,10 +121,6 @@ def compare_registers(ref_regs, test_regs, strategy_name):
     return mismatches
 
 def verify_pattern_correctness(vm_path, pattern_file, pattern_name):
-    """
-    VERIFICATION PHASE: Test all prediction strategies against single-stage reference.
-    Returns (passed, stats_dict) where stats_dict contains performance data for each strategy.
-    """
     print(f"\n{'='*80}")
     print(f"VERIFICATION: {pattern_name}")
     print(f"{'='*80}")
@@ -142,7 +134,7 @@ def verify_pattern_correctness(vm_path, pattern_file, pattern_name):
     )
     
     if not ref_regs:
-        print("❌ Failed to get single-stage reference")
+        print(" Failed to get single-stage reference")
         return False, {}
     
     print(f"✓ Reference: cycles={ref_stats.get('cycles', 'N/A')}")
@@ -164,14 +156,14 @@ def verify_pattern_correctness(vm_path, pattern_file, pattern_name):
         test_regs, test_stats = run_vm_get_registers(vm_path, pattern_file, cmds, wait_for_stats=True)
         
         if not test_regs:
-            print(f"❌ {name}: FAILED (timeout/error)")
+            print(f" {name}: FAILED (timeout/error)")
             all_passed = False
             continue
         
         mismatches = compare_registers(ref_regs, test_regs, name)
         
         if mismatches:
-            print(f"❌ {name}: REGISTER MISMATCH")
+            print(f" {name}: REGISTER MISMATCH")
             for m in mismatches[:5]:  # Show first 5
                 print(f"   {m['register']}: expected={m['expected']}, got={m['got']}")
             if len(mismatches) > 5:
@@ -186,9 +178,6 @@ def verify_pattern_correctness(vm_path, pattern_file, pattern_name):
     return all_passed, stats_results
 
 def analyze_pattern_performance(pattern_name, stats_results):
-    """
-    ANALYSIS PHASE: Analyze and display performance statistics for different predictors.
-    """
     if not stats_results:
         return
     
@@ -225,7 +214,7 @@ def analyze_pattern_performance(pattern_name, stats_results):
     valid_results = [(name, stats) for name, stats in stats_results.items() if stats.get('cycles')]
     if valid_results:
         best = min(valid_results, key=lambda x: x[1]['cycles'])
-        print(f"\n✨ Best: {best[0]} - {best[1]['cycles']} cycles, {best[1].get('mispredictions', 'N/A')} mispredictions")
+        print(f"\nBest: {best[0]} - {best[1]['cycles']} cycles, {best[1].get('mispredictions', 'N/A')} mispredictions")
 
 def main():
     # Paths
@@ -243,12 +232,11 @@ def main():
 
     # Test patterns
     patterns = [
-        # ("branch_pattern_always_taken.s", "Always Taken"),
-        # ("branch_pattern_never_taken.s", "Always Not Taken"),
-        # ("branch_pattern_tntn.s", "Alternating (TNTN)"),
-        # ("branch_pattern_ttnn.s", "TTNN Pattern"),
-        # ("branch_pattern_biased_taken.s", "Biased 75% Taken")
-        ("taylor_series.s", "Taylor Series"),
+        ("branch_pattern_always_taken.s", "Always Taken"),
+        ("branch_pattern_never_taken.s", "Always Not Taken"),
+        ("branch_pattern_tntn.s", "Alternating (TNTN)"),
+        ("branch_pattern_ttnn.s", "TTNN Pattern"),
+        ("branch_pattern_biased_taken.s", "Biased 75% Taken")
     ]
 
     print("=" * 80)
@@ -271,13 +259,13 @@ def main():
             else:
                 all_stats[pattern_name] = stats_results
         else:
-            print(f"\n⚠️  Warning: Pattern file not found: {full_path}")
+            print(f"\n  Warning: Pattern file not found: {full_path}")
             verification_failed = True
 
     # Check verification results
     if verification_failed:
         print(f"\n{'='*80}")
-        print("❌ VERIFICATION FAILED - Correctness issues detected!")
+        print(" VERIFICATION FAILED - Correctness issues detected!")
         print("Fix the issues above before proceeding to performance analysis.")
         print(f"{'='*80}\n")
         sys.exit(1)
@@ -302,7 +290,7 @@ def main():
                 print(f"{pattern_name:<30} → {best[0]:<20} ({best[1]['cycles']} cycles, {best[1].get('mispredictions', 'N/A')} mispred)")
     
     print(f"\n{'='*80}")
-    print("✓ ALL TESTS COMPLETED SUCCESSFULLY")
+    print("ALL TESTS COMPLETED SUCCESSFULLY")
     print(f"{'='*80}\n")
     
     sys.exit(0)

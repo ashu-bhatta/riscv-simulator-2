@@ -1,5 +1,5 @@
 # Compares register dumps from 2 processor types (can change below in code)
-# python3 verify_pipeline.py ../examples/pipeline_test1.s
+# python3 test/verify_pipeline.py examples/pipeline_test1.s
 
 import subprocess
 import json
@@ -158,8 +158,12 @@ def main():
     assembly_file = os.path.abspath(assembly_file_arg)
     
     # Paths
-    base_dir = os.getcwd()
-    build_dir = os.path.join(base_dir, "build")
+    # Determine project root relative to this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Assuming script is in <project_root>/test/
+    project_root = os.path.dirname(script_dir)
+    
+    build_dir = os.path.join(project_root, "build")
     vm_path = os.path.join(build_dir, "vm")
     
     if not os.path.exists(vm_path):

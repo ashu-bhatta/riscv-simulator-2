@@ -29,7 +29,7 @@ Transform the existing single-cycle execution model into a **classic 5-stage RIS
 
 ## 2. Implementation Details
 
-### 2.1 Core Pipeline Implementation ✅ **COMPLETED**
+### 2.1 Core Pipeline Implementation **COMPLETED**
 
 #### Pipeline Stage Execution
 
@@ -66,7 +66,7 @@ Each clock cycle executes all 5 stages in **reverse order** to prevent data race
 
 ---
 
-### 2.2 Hazard Detection and Stalling ✅ **COMPLETED**
+### 2.2 Hazard Detection and Stalling **COMPLETED**
 
 Detects **Read-After-Write (RAW)** hazards, specifically **load-use** hazards:
 
@@ -77,10 +77,10 @@ Detects **Read-After-Write (RAW)** hazards, specifically **load-use** hazards:
 
 ---
 
-### 2.3 Data Forwarding ✅ **COMPLETED**
+### 2.3 Data Forwarding **COMPLETED**
 
 
-### 2.4 Branch Prediction ✅ **COMPLETED**
+### 2.4 Branch Prediction **COMPLETED**
 
 Supports **three prediction modes**:
 
@@ -95,13 +95,13 @@ Supports **three prediction modes**:
 
 ---
 
-### 2.5 Undo/Redo Functionality ✅ **COMPLETED**
+### 2.5 Undo/Redo Functionality **COMPLETED**
 
 Implements **cycle-level undo/redo** with complete state restoration:
 
 ---
 
-### 2.6 Configuration System ✅ **COMPLETED**
+### 2.6 Configuration System **COMPLETED**
 
 **VM Types:**
 ```cpp
@@ -187,19 +187,53 @@ All test programs verified against **Ripes simulator** outputs:
 **Example Comparison:**
 
 #### w/o forwarding or hazard detection 
-![alt text](image.png)
+![alt text](./screenshots/image.png)
 
-![alt text](image-1.png)
+![alt text](./screenshots/image-1.png)
 
-![alt text](image-2.png)
+![alt text](./screenshots/image-2.png)
 
-![alt text](image-3.png)
+![alt text](./screenshots/image-3.png)
 
 #### w/o hazard detection
 
-![alt text](image-4.png)
+![alt text](./screenshots/image-5.png)
 
-![alt text](image-5.png)
+### 4.3 Automated Pipeline Verification
+
+To ensure the multi-stage pipeline behaves identically to the single-stage reference (functionally), we implemented an automated verification script: `test/verify_pipeline.py`.
+
+**How it works:**
+1. Runs the simulator in **Single-Stage** mode on a given assembly file.
+2. Captures the final register state (General Purpose and Floating Point registers) into a JSON dump.
+3. Runs the simulator in **Multi-Stage** mode (with full features enabled) on the same file.
+4. Captures the final register state.
+5. Compares the two register dumps entry-by-entry.
+
+**Usage:**
+```bash
+python3 test/verify_pipeline.py examples/pipeline_test1.s
+```
+
+This ensures that despite the complexity of pipelining, forwarding, and hazard detection, the architectural state remains correct.
+
+### 4.4 Branch Prediction Analysis
+
+We developed a comprehensive testing suite `test/branch_pattern_test.py` to verify and analyze the branch predictor's performance.
+
+**Testing Methodology:**
+The script operates in two phases:
+1. **Verification Phase:** Runs various branch patterns on the multi-stage pipeline and compares the final register state against the single-stage reference to ensure correctness.
+2. **Analysis Phase:** Runs the patterns with different predictor configurations (Static Taken/Not-Taken, Dynamic 1-bit/2-bit) and collects statistics (Accuracy, Mispredictions, CPI).
+
+**Branch Pattern Tests:**
+The suite uses specific assembly programs (located in `examples/`) designed to stress different prediction scenarios:
+
+- **Always Taken (`branch_pattern_always_taken.s`):** A loop where the branch is always taken. Ideal for "Static Taken" or trained dynamic predictors.
+- **Always Not Taken (`branch_pattern_never_taken.s`):** A loop where the branch is never taken. Ideal for "Static Not-Taken".
+- **Alternating (`branch_pattern_tntn.s`):** Taken, Not-Taken, Taken, Not-Taken... Hard for static predictors, requires 2-bit dynamic history.
+- **Pattern TTNN (`branch_pattern_ttnn.s`):** Taken, Taken, Not-Taken, Not-Taken... Tests the predictor's ability to learn short repeating patterns.
+- **Biased (`branch_pattern_biased_taken.s`):** Random-like pattern but with a 75% bias towards Taken. Tests the predictor's adaptability.
 
 ## 5. Challenges Faced
 

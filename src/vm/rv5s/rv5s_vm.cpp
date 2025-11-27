@@ -699,12 +699,12 @@ void RV5SVM::MEM() {
     mem_wb_reg_.prev_valid = mem_wb_reg_.valid;
     mem_wb_reg_.prev_control = mem_wb_reg_.control;
 
-    if(mem_wb_reg_.prev_valid){
-        std::cout<<"MEM_WB prev_alu_result: "<<mem_wb_reg_.prev_alu_result<<std::endl;
-        std::cout<<"MEM_WB prev_memory_result: "<<mem_wb_reg_.prev_memory_result<<std::endl;
-        std::cout<<"MEM_WB prev_rd_addr: "<<static_cast<uint32_t>(mem_wb_reg_.prev_rd_addr)<<std::endl;
-        std::cout<<"MEM_WB prev_instruction: "<<mem_wb_reg_.prev_instruction<<std::endl;
-    }
+    // if(mem_wb_reg_.prev_valid){
+    //     std::cout<<"MEM_WB prev_alu_result: "<<mem_wb_reg_.prev_alu_result<<std::endl;
+    //     std::cout<<"MEM_WB prev_memory_result: "<<mem_wb_reg_.prev_memory_result<<std::endl;
+    //     std::cout<<"MEM_WB prev_rd_addr: "<<static_cast<uint32_t>(mem_wb_reg_.prev_rd_addr)<<std::endl;
+    //     std::cout<<"MEM_WB prev_instruction: "<<mem_wb_reg_.prev_instruction<<std::endl;
+    // }
 
     mem_wb_reg_.alu_result = ex_mem_reg_.alu_result;
     mem_wb_reg_.memory_result = current_mem_result_;
