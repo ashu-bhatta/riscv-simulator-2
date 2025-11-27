@@ -128,9 +128,6 @@ void RV5SVM::ID() {
 
     uint64_t detect_rs1 = rs1;
     uint64_t detect_rs2 = rs2;
-    if (id_ex_reg_.control.alu_src) {
-        detect_rs2 = static_cast<uint64_t>(0); // indicate no rs2 dependency
-    }
 
     uint8_t stalls_needed = DetectHazard(detect_rs1, detect_rs2);
     if (globals::pipeline_hazard_detection_enabled && stalls_needed != 0) {
@@ -310,9 +307,22 @@ void RV5SVM::ExecuteFloat(ID_EX_Register& id_ex) {
         rm = registers_.ReadCsr(0x002); // Read rounding mode from fcsr
     }
 
+    uint64_t operand1 = id_ex.rs1_val;
+    uint64_t operand2 = id_ex.rs2_val;
+
     uint64_t rs1_val = id_ex.rs1_val;
     uint64_t rs2_val = id_ex.rs2_val;
     uint64_t rs3_val = registers_.ReadFpr(rs3);
+
+    if (globals::pipeline_forwarding_enabled) {
+        if (id_ex.rs1_addr != 0) {
+            operand1 = ResolveForwarding(id_ex.rs1_addr, operand1);
+        }
+        if (!id_ex.control.alu_src && id_ex.rs2_addr != 0) {
+            // Only forward rs2 when it's coming from a register (not an immediate)
+            operand2 = ResolveForwarding(id_ex.rs2_addr, operand2);
+        }
+    }
 
     if (id_ex.control.alu_src) {
         rs2_val = static_cast<uint64_t>(id_ex.imm);
@@ -332,9 +342,22 @@ void RV5SVM::ExecuteDouble(ID_EX_Register& id_ex) {
     uint8_t rs3 = (instruction >> 27) & 0b11111;
     uint8_t rm = funct3;
 
+    uint64_t operand1 = id_ex.rs1_val;
+    uint64_t operand2 = id_ex.rs2_val;
+
     uint64_t rs1_val = id_ex.rs1_val;
     uint64_t rs2_val = id_ex.rs2_val;
     uint64_t rs3_val = registers_.ReadFpr(rs3);
+
+    if (globals::pipeline_forwarding_enabled) {
+        if (id_ex.rs1_addr != 0) {
+            operand1 = ResolveForwarding(id_ex.rs1_addr, operand1);
+        }
+        if (!id_ex.control.alu_src && id_ex.rs2_addr != 0) {
+            // Only forward rs2 when it's coming from a register (not an immediate)
+            operand2 = ResolveForwarding(id_ex.rs2_addr, operand2);
+        }
+    }
 
     if (id_ex.control.alu_src) {
         rs2_val = static_cast<uint64_t>(id_ex.imm);
@@ -507,6 +530,12 @@ void RV5SVM::HandleSyscall() {
 void RV5SVM::MEM() {
     // If EX/MEM register is not valid, propagate a bubble
     if (!ex_mem_reg_.valid) {
+        mem_wb_reg_.prev_alu_result = mem_wb_reg_.alu_result;
+        mem_wb_reg_.prev_memory_result = mem_wb_reg_.memory_result;
+        mem_wb_reg_.prev_rd_addr = mem_wb_reg_.rd_addr;
+        mem_wb_reg_.prev_instruction = mem_wb_reg_.instruction;
+        mem_wb_reg_.prev_valid = mem_wb_reg_.valid;
+        mem_wb_reg_.prev_control = mem_wb_reg_.control;
         mem_wb_reg_.Reset();
         return;
     }
@@ -1362,13 +1391,13 @@ uint8_t RV5SVM::DetectHazard(uint64_t rs1, uint64_t rs2) {
 
 uint64_t RV5SVM::ResolveForwarding(uint8_t src_reg, uint64_t reg_value) {
 
-    std::cout<< "Resolving forwarding for register x" << static_cast<int>(src_reg) << " with original value 0x"
-         << std::hex << reg_value << std::dec << std::endl;
-    std::cout<< "EX/MEM valid: " << ex_mem_reg_.valid << ", rd_addr: " << static_cast<int>(ex_mem_reg_.rd_addr)
-         << ", reg_write: " << ex_mem_reg_.control.reg_write << ", alu_result: 0x" << std::hex << ex_mem_reg_.alu_result << std::dec << std::endl;
-    std::cout<< "MEM/WB valid: " << mem_wb_reg_.prev_valid << ", rd_addr: " << static_cast<int>(mem_wb_reg_.prev_rd_addr)
-         << ", reg_write: " << mem_wb_reg_.prev_control.reg_write << ", alu_result: 0x" << std::hex << mem_wb_reg_.prev_alu_result
-         << ", memory_result: 0x" << mem_wb_reg_.prev_memory_result << std::dec << std::endl;
+    // std::cout<< "Resolving forwarding for register x" << static_cast<int>(src_reg) << " with original value 0x"
+    //      << std::hex << reg_value << std::dec << std::endl;
+    // std::cout<< "EX/MEM valid: " << ex_mem_reg_.valid << ", rd_addr: " << static_cast<int>(ex_mem_reg_.rd_addr)
+    //      << ", reg_write: " << ex_mem_reg_.control.reg_write << ", alu_result: 0x" << std::hex << ex_mem_reg_.alu_result << std::dec << std::endl;
+    // std::cout<< "MEM/WB valid: " << mem_wb_reg_.prev_valid << ", rd_addr: " << static_cast<int>(mem_wb_reg_.prev_rd_addr)
+    //      << ", reg_write: " << mem_wb_reg_.prev_control.reg_write << ", alu_result: 0x" << std::hex << mem_wb_reg_.prev_alu_result
+    //      << ", memory_result: 0x" << mem_wb_reg_.prev_memory_result << std::dec << std::endl;
 
     if (ex_mem_reg_.valid && ex_mem_reg_.rd_addr != 0 && ex_mem_reg_.rd_addr == src_reg && ex_mem_reg_.control.reg_write) {
         if (!ex_mem_reg_.control.mem_read) {
